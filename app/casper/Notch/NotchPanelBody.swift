@@ -48,12 +48,13 @@ struct NotchPanelBody: View {
             // Uncomment for actual transparency
             //Color.init(red: 0.175, green: 0.175, blue: 0.175, opacity: 1)
             NotchBackdrop()
-                .frame(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height)
-                .mask { shape.frame(width: size.width, height: size.height) }
-                .overlay { shape.fill(Self.backdropTint).frame(width: size.width, height: size.height) }
+                .notchSized(CGSize(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height),
+                            expanding: controller.isExpanded)
+                .mask { shape.notchSized(size, expanding: controller.isExpanded) }
+                .overlay { shape.fill(Self.backdropTint).notchSized(size, expanding: controller.isExpanded) }
                 .overlay {
                     shape.fill(Self.opaqueTint)
-                        .frame(width: size.width, height: size.height)
+                        .notchSized(size, expanding: controller.isExpanded)
                         .opacity(controller.isTerminalTransparent ? 0 : 1)
                         .animation(.easeInOut(duration: 0.2), value: controller.isTerminalTransparent)
                 }
@@ -62,13 +63,13 @@ struct NotchPanelBody: View {
             if let vignette = Self.vignetteGradient(Self.vignette) {
                 shape
                     .fill(vignette)
-                    .frame(width: size.width, height: size.height)
+                    .notchSized(size, expanding: controller.isExpanded)
                     .allowsHitTesting(false)
             }
 
             shape
                 .fill(Self.topGradient(solid: controller.collapsedSize.height, height: size.height))
-                .frame(width: size.width, height: size.height)
+                .notchSized(size, expanding: controller.isExpanded)
                 // Restrict hit-testing to the visible shape so the transparent
                 // rest of the panel doesn't swallow clicks.
                 .contentShape(shape)
@@ -79,9 +80,17 @@ struct NotchPanelBody: View {
             // the same radii and frame as the fill so both ride the same spring.
             NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius, includesTopEdge: false)
                 .strokeBorder(Self.borderColor, lineWidth: Self.borderWidth)
-                .frame(width: size.width, height: size.height)
+                .notchSized(size, expanding: controller.isExpanded)
                 .opacity(controller.isExpanded ? 1 : 0)
                 .allowsHitTesting(false)
+
+            // Collapse and quit, in the band above the terminal at the top
+            // right of the expanded shape. Hidden and click-through while
+            // collapsed so the pill keeps the strip to itself.
+            NotchCornerControls()
+                .frame(width: size.width, height: controller.collapsedSize.height, alignment: .trailing)
+                .opacity(controller.isExpanded ? 1 : 0)
+                .allowsHitTesting(controller.isExpanded)
 
             // Floats in the band the panel reserves under the expanded shape.
             // Rises into place on the same spring as the shape; while
@@ -94,8 +103,12 @@ struct NotchPanelBody: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea()
-        // Same spring as the terminal's reveal mask. Window frame never animates.
-        .animation(NotchSpring.swiftUI, value: controller.isExpanded)
+        // Same spring as the terminal's reveal mask. Window frame never
+        // animates. `isExpanded` already holds the new value here, so it
+        // names the direction this transition runs in. Widths and heights
+        // are animated closer to the leaves by `notchSized`; this covers
+        // everything else (radii, gradients, opacity).
+        .animation(NotchSpring.swiftUI(expanding: controller.isExpanded), value: controller.isExpanded)
     }
 
     /// Opaque down to `solid` points from the top, then a smoothstep fade over
@@ -143,6 +156,21 @@ struct NotchPanelBody: View {
     }
 }
 
+
+private extension View {
+    /// `frame(width:height:)` with each axis on its own spring, so the two
+    /// can collapse on different clocks. Innermost animation wins in SwiftUI,
+    /// so these override the body-wide one for the frame alone.
+    func notchSized(_ size: CGSize, expanding: Bool) -> some View {
+        self
+            .animation(NotchSpring.swiftUI(axis: .vertical, expanding: expanding)) {
+                $0.frame(height: size.height)
+            }
+            .animation(NotchSpring.swiftUI(axis: .horizontal, expanding: expanding)) {
+                $0.frame(width: size.width)
+            }
+    }
+}
 
 /// Frosted backdrop behind the shape and the dock. An NSVisualEffectView
 /// rather than SwiftUI's glassEffect: glass follows the window's key status

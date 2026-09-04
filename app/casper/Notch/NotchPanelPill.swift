@@ -56,8 +56,8 @@ final class NotchPanelPill: NSView {
          iconView.image = icon
          iconView.contentTintColor = NSColor.magenta
          */
-        iconView.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Casper")
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        iconView.image = NSImage(systemSymbolName: "chevron.down.circle.fill", accessibilityDescription: "Casper")
+        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         iconView.contentTintColor = NSColor.white.withAlphaComponent(0.92)
         iconView.imageScaling = .scaleNone
         iconView.imageAlignment = .alignRight

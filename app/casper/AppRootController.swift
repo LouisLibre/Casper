@@ -95,6 +95,41 @@ final class AppRootController: ObservableObject {
         panel?.makeFirstResponder(terminal.inputView)
     }
 
+    // MARK: - Corner controls
+
+    func collapse() {
+        setExpanded(false)
+    }
+
+    /// Asks before quitting: the shell and anything running in it die with
+    /// the app. The app is activated first because the nonactivating panel
+    /// never brings it forward on its own.
+    func confirmQuit() {
+        let alert = NSAlert()
+        alert.messageText = "Quit Casper?"
+        alert.informativeText = "The terminal session and anything running in it will end."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        // Starting the modal session resets the alert window to the modal
+        // panel level, which is below the panel's. Raise it once the session
+        // is running, from the next main-queue turn.
+        if let panel {
+            let level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
+            DispatchQueue.main.async {
+                alert.window.level = level
+                alert.window.orderFrontRegardless()
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            panel?.makeKeyAndOrderFront(nil)
+            panel?.makeFirstResponder(terminal.inputView)
+            return
+        }
+        NSApp.terminate(nil)
+    }
+
     func start() {
         rebuildPanel()
         terminal.startShellIfNeeded()

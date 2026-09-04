@@ -91,7 +91,7 @@ final class NotchTerminalScreen {
         revealed = true
         surfaceView?.setVisible(true)
         view.isHidden = false
-        animateMask(installingAt: collapsedShapeRect, to: expandedShapeRect,
+        animateMask(installingAt: collapsedShapeRect, to: expandedShapeRect, expanding: true,
                     startDelay: NotchSpring.revealStartDelay) { [weak self] in
             // Fully revealed — drop the mask so the layer isn't composited
             // offscreen while the panel just sits open.
@@ -101,7 +101,7 @@ final class NotchTerminalScreen {
 
     func conceal(from expandedShapeRect: CGRect, to collapsedShapeRect: CGRect) {
         revealed = false
-        animateMask(installingAt: expandedShapeRect, to: collapsedShapeRect) { [weak self] in
+        animateMask(installingAt: expandedShapeRect, to: collapsedShapeRect, expanding: false) { [weak self] in
             self?.view.isHidden = true
             self?.removeMask()
             // Let the renderer idle now that nothing is on screen.
@@ -120,6 +120,7 @@ final class NotchTerminalScreen {
     }
 
     private func animateMask(installingAt startRect: CGRect, to endRect: CGRect,
+                             expanding: Bool,
                              startDelay: CFTimeInterval = 0,
                              completion: @escaping () -> Void) {
         maskGeneration += 1
@@ -156,15 +157,25 @@ final class NotchTerminalScreen {
             guard let self, self.maskGeneration == generation else { return }
             completion()
         }
-        let bounds = NotchSpring.caSpring(keyPath: "bounds",
-                                          from: NSValue(rect: mask.bounds),
-                                          to: NSValue(rect: endBounds))
+        // Width and height ride separate springs, matching the shape. The
+        // shape is top-centered so only position.y moves; it follows the
+        // height's clock.
+        let width = NotchSpring.caSpring(keyPath: "bounds.size.width",
+                                         from: NSNumber(value: Double(mask.bounds.width)),
+                                         to: NSNumber(value: Double(endBounds.width)),
+                                         axis: .horizontal, expanding: expanding)
+        let height = NotchSpring.caSpring(keyPath: "bounds.size.height",
+                                          from: NSNumber(value: Double(mask.bounds.height)),
+                                          to: NSNumber(value: Double(endBounds.height)),
+                                          axis: .vertical, expanding: expanding)
         let position = NotchSpring.caSpring(keyPath: "position",
                                             from: NSValue(point: mask.position),
-                                            to: NSValue(point: endPosition))
+                                            to: NSValue(point: endPosition),
+                                            axis: .vertical, expanding: expanding)
+        let springs = [width, height, position]
         if startDelay > 0 {
             let begin = CACurrentMediaTime() + startDelay
-            for spring in [bounds, position] {
+            for spring in springs {
                 spring.beginTime = begin
                 // Hold the from-value during the delay; the model values below
                 // are already at the end state, so without this the mask would
@@ -174,8 +185,7 @@ final class NotchTerminalScreen {
         }
         mask.bounds = endBounds
         mask.position = endPosition
-        mask.add(bounds, forKey: "bounds")
-        mask.add(position, forKey: "position")
+        for spring in springs { mask.add(spring, forKey: spring.keyPath) }
         CATransaction.commit()
     }
 }
