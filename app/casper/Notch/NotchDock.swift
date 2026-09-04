@@ -39,7 +39,7 @@ struct NotchDock: View {
 
     static let height: CGFloat = 50
     /// Space between the shape's bottom edge and the dock.
-    static let topGap: CGFloat = 22
+    static let topGap: CGFloat = 8
     static let bottomMargin: CGFloat = 12
     /// Extra panel height below the expanded shape that the dock lives in.
     static var reserve: CGFloat { topGap + height + bottomMargin }
