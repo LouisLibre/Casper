@@ -9,3 +9,9 @@ window-padding-x = 4
 window-padding-y = 6
 window-padding-balance = true
 window-padding-color = extend
+# The notch body is liquid glass and supplies the terminal's darkness, so the
+# surface renders with no background of its own. Anything above 0 shows a
+# faint frame where the glass margin meets the terminal. Cell backgrounds
+# (selections, TUI panes) stay solid so they remain readable.
+background-opacity = 0
+background-opacity-cells = 1

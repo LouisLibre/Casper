@@ -58,6 +58,7 @@ final class GhosttySurfaceView: NSView {
             return
         }
 
+        setBackgroundOpacity(GhosttyRuntime.shared.backgroundOpacity)
         // Nothing has focus until the panel expands and makes us first responder.
         ghostty_surface_set_focus(surface, false)
         syncSize()
@@ -96,6 +97,13 @@ final class GhosttySurfaceView: NSView {
         guard let surface else { return }
         self.surface = nil
         ghostty_surface_free(surface)
+    }
+
+    /// libghostty installs its render layer marked opaque regardless of
+    /// `background-opacity`, which makes the compositor drop the alpha it
+    /// renders with. Mirror the config onto the layer.
+    func setBackgroundOpacity(_ opacity: Double) {
+        layer?.isOpaque = opacity >= 1
     }
 
     /// Lets the renderer idle while the notch is collapsed.

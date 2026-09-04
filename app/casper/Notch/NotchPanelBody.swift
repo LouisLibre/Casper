@@ -10,18 +10,59 @@ struct NotchPanelBody: View {
     static let borderColor = Color.white.opacity(0.3)
     static let borderWidth: CGFloat = 1
 
+    /// The backdrop is darkened by a vertical black gradient: fully opaque over
+    /// the band where the menu bar and hardware notch sit behind the panel,
+    /// then easing out to the tint alone. The collapsed shape never grows
+    /// past that band, so the pill stays solid black without special-casing.
+    static let fadeHeight: CGFloat = 56
+    /// All of the terminal's darkness lives here: the surface itself renders
+    /// with a fully transparent background (see defaults.ghostty), so the
+    /// backdrop reads as one sheet with no inner frame around the terminal.
+    static let backdropTint = Color.black.opacity(0.6)
+
+    /// Shape of the darkening under the band. `.u` lights the bottom center
+    /// and darkens toward the top corners and sides; `.o` lights the middle
+    /// and darkens toward every edge; `.none` leaves only the band and tint.
+    /// The band stays at menu bar height; the vignette supplies the rest.
+    enum Vignette { case none, u, o }
+    static let vignette: Vignette = .u
+    /// Darkest alpha the vignette reaches at the far edge.
+    static let vignetteStrength = 0.95
+    /// Fraction of the reach that stays untouched around the light spot.
+    static let vignetteInner: CGFloat = 0.2
+    /// How far the falloff extends, as a fraction of the shape's size. Above 1
+    /// the far corners never reach full strength; below 1 the edges clip.
+    static let vignetteReach: CGFloat = 1.1
+
     var body: some View {
         let size = controller.isExpanded ? controller.expandedSize : controller.collapsedSize
         let topRadius: CGFloat = controller.isExpanded ? NotchShape.maxTopCornerRadius : 10
         let bottomRadius: CGFloat = controller.isExpanded ? 22 : 12
+        let shape = NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius)
 
         ZStack(alignment: .top) {
-            NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius)
-                .fill(.black)
+            
+            // Uncomment for actual transparency
+            //Color.init(red: 0.175, green: 0.175, blue: 0.175, opacity: 1)
+            NotchBackdrop()
+                .frame(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height)
+                .mask { shape.frame(width: size.width, height: size.height) }
+                .overlay { shape.fill(Self.backdropTint).frame(width: size.width, height: size.height) }
+                .allowsHitTesting(false)
+
+            if let vignette = Self.vignetteGradient(Self.vignette) {
+                shape
+                    .fill(vignette)
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
+            }
+
+            shape
+                .fill(Self.topGradient(solid: controller.collapsedSize.height, height: size.height))
                 .frame(width: size.width, height: size.height)
                 // Restrict hit-testing to the visible shape so the transparent
                 // rest of the panel doesn't swallow clicks.
-                .contentShape(NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius))
+                .contentShape(shape)
 
             // Hairline along the ears, sides and bottom. The top edge is skipped:
             // it sits flush with the screen edge, and a line there would show
@@ -38,8 +79,70 @@ struct NotchPanelBody: View {
         // Same spring as the terminal's reveal mask. Window frame never animates.
         .animation(NotchSpring.swiftUI, value: controller.isExpanded)
     }
+
+    /// Opaque down to `solid` points from the top, then a smoothstep fade over
+    /// `fadeHeight`. Stops are fractions of the current height so the band
+    /// keeps its size in points while the shape springs between states.
+    private static func topGradient(solid: CGFloat, height: CGFloat) -> LinearGradient {
+        func alpha(_ y: CGFloat) -> Double {
+            let t = min(max((y - solid) / fadeHeight, 0), 1)
+            return 1 - Double(t * t * (3 - 2 * t))
+        }
+        // Never place a stop past the bottom edge: while collapsed the whole
+        // shape sits inside the solid band, and stops beyond 1 would let the
+        // last (transparent) one bleed into the bottom row.
+        let start = min(solid, height)
+        let end = min(solid + fadeHeight, height)
+        let steps = 16
+        var stops: [Gradient.Stop] = [.init(color: .black, location: 0)]
+        for i in 0...steps {
+            let y = start + (end - start) * CGFloat(i) / CGFloat(steps)
+            stops.append(.init(color: .black.opacity(alpha(y)), location: y / height))
+        }
+        return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+    }
+
+    /// Clear around the light spot, then a smoothstep ramp to
+    /// `vignetteStrength` at `vignetteReach`. Radii are fractions of the
+    /// frame, so the ellipse keeps the shape's aspect through the spring.
+    private static func vignetteGradient(_ style: Vignette) -> EllipticalGradient? {
+        let center: UnitPoint
+        switch style {
+        case .none: return nil
+        case .u: center = UnitPoint(x: 0.5, y: 1)
+        case .o: center = .center
+        }
+        let steps = 8
+        var stops: [Gradient.Stop] = [.init(color: .black.opacity(0), location: 0)]
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let eased = Double(t * t * (3 - 2 * t))
+            stops.append(.init(color: .black.opacity(vignetteStrength * eased),
+                               location: vignetteInner + (1 - vignetteInner) * t))
+        }
+        return EllipticalGradient(stops: stops, center: center,
+                                  startRadiusFraction: 0, endRadiusFraction: vignetteReach)
+    }
 }
 
+
+/// Frosted backdrop behind the whole shape. An NSVisualEffectView rather than
+/// SwiftUI's glassEffect: glass follows the window's key status and flattens
+/// the moment a click lands in another app, which happens on every press
+/// outside the panel and on every drag that starts elsewhere and ends on the
+/// terminal. `state = .active` pins the material regardless of key status.
+private struct NotchBackdrop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.appearance = NSAppearance(named: .darkAqua)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
 
 /// Notch cutout flush against the top of the screen: rounded bottom corners, and top
 /// corners that flare outward into the menu bar ("ears"). The ears are drawn *outside*

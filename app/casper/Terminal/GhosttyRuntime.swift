@@ -24,6 +24,12 @@ final class GhosttyRuntime {
     private(set) var app: ghostty_app_t?
     private var config: ghostty_config_t?
 
+    /// `background-opacity` from the finalized config. libghostty clears its
+    /// render layer with this alpha but leaves the layer marked opaque, so
+    /// the surface view has to flip that itself for the alpha to reach the
+    /// compositor.
+    private(set) var backgroundOpacity: Double = 1
+
     private init() {
         Self.pinResourcesDirectory()
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
@@ -32,6 +38,7 @@ final class GhosttyRuntime {
         }
         guard let config = Self.loadConfig() else { return }
         self.config = config
+        backgroundOpacity = Self.backgroundOpacity(of: config)
 
         var runtime = ghostty_runtime_config_s(
             userdata: Unmanaged.passUnretained(self).toOpaque(),
@@ -206,6 +213,14 @@ final class GhosttyRuntime {
         ghostty_app_update_config(app, config)
         if let previous = self.config { ghostty_config_free(previous) }
         self.config = config
+        backgroundOpacity = Self.backgroundOpacity(of: config)
+    }
+
+    private static func backgroundOpacity(of config: ghostty_config_t) -> Double {
+        var opacity: Double = 1
+        let key = "background-opacity"
+        guard ghostty_config_get(config, &opacity, key, UInt(key.utf8.count)) else { return 1 }
+        return opacity
     }
 
     /// ⌘, opens Casper's override file in the user's editor, creating it with
@@ -273,6 +288,13 @@ final class GhosttyRuntime {
 
             case GHOSTTY_ACTION_RELOAD_CONFIG:
                 shared.reloadConfig()
+                return true
+
+            case GHOSTTY_ACTION_CONFIG_CHANGE:
+                // Sent per surface once a new config is in effect; the app
+                // wide one carries the same config and needs nothing here.
+                guard let view = surfaceView(for: target) else { return false }
+                view.setBackgroundOpacity(backgroundOpacity(of: action.action.config_change.config))
                 return true
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
