@@ -19,6 +19,9 @@ struct NotchPanelBody: View {
     /// with a fully transparent background (see defaults.ghostty), so the
     /// backdrop reads as one sheet with no inner frame around the terminal.
     static let backdropTint = Color.black.opacity(0.6)
+    /// With transparency off the tint goes solid, hiding the frosted backdrop
+    /// so the shape reads as flat black.
+    static let opaqueTint = Color.black
 
     /// Shape of the darkening under the band. `.u` lights the bottom center
     /// and darkens toward the top corners and sides; `.o` lights the middle
@@ -48,6 +51,12 @@ struct NotchPanelBody: View {
                 .frame(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height)
                 .mask { shape.frame(width: size.width, height: size.height) }
                 .overlay { shape.fill(Self.backdropTint).frame(width: size.width, height: size.height) }
+                .overlay {
+                    shape.fill(Self.opaqueTint)
+                        .frame(width: size.width, height: size.height)
+                        .opacity(controller.isTerminalTransparent ? 0 : 1)
+                        .animation(.easeInOut(duration: 0.2), value: controller.isTerminalTransparent)
+                }
                 .allowsHitTesting(false)
 
             if let vignette = Self.vignetteGradient(Self.vignette) {
@@ -73,6 +82,15 @@ struct NotchPanelBody: View {
                 .frame(width: size.width, height: size.height)
                 .opacity(controller.isExpanded ? 1 : 0)
                 .allowsHitTesting(false)
+
+            // Floats in the band the panel reserves under the expanded shape.
+            // Rises into place on the same spring as the shape; while
+            // collapsed it is invisible and lets clicks through.
+            NotchDock()
+                .padding(.top, controller.expandedSize.height + NotchDock.topGap)
+                .offset(y: controller.isExpanded ? 0 : -12)
+                .opacity(controller.isExpanded ? 1 : 0)
+                .allowsHitTesting(controller.isExpanded)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea()
@@ -126,12 +144,13 @@ struct NotchPanelBody: View {
 }
 
 
-/// Frosted backdrop behind the whole shape. An NSVisualEffectView rather than
-/// SwiftUI's glassEffect: glass follows the window's key status and flattens
-/// the moment a click lands in another app, which happens on every press
-/// outside the panel and on every drag that starts elsewhere and ends on the
-/// terminal. `state = .active` pins the material regardless of key status.
-private struct NotchBackdrop: NSViewRepresentable {
+/// Frosted backdrop behind the shape and the dock. An NSVisualEffectView
+/// rather than SwiftUI's glassEffect: glass follows the window's key status
+/// and flattens the moment a click lands in another app, which happens on
+/// every press outside the panel and on every drag that starts elsewhere and
+/// ends on the terminal. `state = .active` pins the material regardless of
+/// key status.
+struct NotchBackdrop: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = .hudWindow

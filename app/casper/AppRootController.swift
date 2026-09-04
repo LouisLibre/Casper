@@ -18,6 +18,11 @@ import SwiftUI
 @MainActor
 final class AppRootController: ObservableObject {
     @Published private(set) var isExpanded = false
+    /// Tab highlighted in the dock. Settings has no pane yet, so it never
+    /// becomes selected; see `select(_:)`.
+    @Published private(set) var selectedTab: NotchTab = .terminal
+    /// Whether the shape shows the frosted backdrop (on) or flat black (off).
+    @Published private(set) var isTerminalTransparent = true
 
     // human-note: (DRAFT) we should probably have a set preferred sizes based on the current user screen resolution
     let expandedSize = CGSize(width: 640, height: 480)
@@ -35,6 +40,30 @@ final class AppRootController: ObservableObject {
     private var releaseWatcher: Timer?
 
     var collapsedSize: CGSize { geometry?.collapsedSize ?? AppGeometryReader.fallbackSize }
+
+    /// The panel is the expanded shape plus the band under it that holds the dock.
+    private var panelSize: CGSize {
+        CGSize(width: expandedSize.width + NotchShape.maxTopCornerRadius * 2,
+               height: expandedSize.height + NotchDock.reserve)
+    }
+
+    // MARK: - Dock
+
+    func select(_ tab: NotchTab) {
+        switch tab {
+        case .terminal:
+            selectedTab = .terminal
+        case .settings:
+            // No settings pane yet: behaves like ⌘, and leaves the terminal selected.
+            GhosttyRuntime.openUserConfig()
+        }
+        panel?.makeFirstResponder(terminal.inputView)
+    }
+
+    func toggleTerminalTransparency() {
+        isTerminalTransparent.toggle()
+        panel?.makeFirstResponder(terminal.inputView)
+    }
 
     func start() {
         rebuildPanel()
@@ -139,11 +168,11 @@ final class AppRootController: ObservableObject {
         let geometry = AppGeometryReader(screen: screen)
         self.geometry = geometry
 
-        // Fixed frame, big enough for the expanded state. Collapsed just means
-        // most of the panel is transparent and doesn't hit-test. Slightly wider
-        // than the expanded shape so its top "ears" aren't clipped by the window.
-        let frame = geometry.frame(for: CGSize(width: expandedSize.width + NotchShape.maxTopCornerRadius * 2,
-                                               height: expandedSize.height))
+        // Fixed frame, big enough for the expanded state and the dock below
+        // it. Collapsed just means most of the panel is transparent and
+        // doesn't hit-test. Slightly wider than the expanded shape so its top
+        // "ears" aren't clipped by the window.
+        let frame = geometry.frame(for: panelSize)
 
         if let panel {
             panel.setFrame(frame, display: true)
@@ -207,10 +236,12 @@ final class AppRootController: ObservableObject {
         let topInset = collapsedSize.height
         /// The expanded shape is centered in the (wider) panel; keep the terminal inside it.
         let sideMargin = (panelFrame.width - expandedSize.width) / 2
+        /// The shape sits at the top of the panel; the band below it belongs to the dock.
+        let shapeBottom = panelFrame.height - expandedSize.height
         return NSRect(x: sideMargin + 7,
-                      y: 7,
+                      y: shapeBottom + 7,
                       width: expandedSize.width - 14,
-                      height: panelFrame.height - topInset - 7)
+                      height: expandedSize.height - topInset - 7)
     }
 
     // Display connected/disconnected or resolution changed — the notch may have moved or vanished.
