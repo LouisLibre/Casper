@@ -9,6 +9,7 @@
 //      does not, so a drag that starts in another app can end on the terminal.
 //    - right button pressed outside the panel    -> collapse
 //    - Moving the mouse away does NOT collapse.
+//    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //
 
 import AppKit
@@ -25,8 +26,18 @@ final class AppRootController: ObservableObject {
     @Published private(set) var isTerminalTransparent = true
 
     // human-note: (DRAFT) we should probably have a set preferred sizes based on the current user screen resolution
-    let expandedSize = CGSize(width: 640, height: 480)
+    /// Size of the expanded shape. A rung of `ExpandedSizeLadder`, picked by
+    /// the saved step and clamped to the current screen. Every reader of this
+    /// value (shape, gradients, dock offset, terminal frame) follows it.
+    @Published private(set) var expandedSize = ExpandedSizeLadder.size(at: 0)
 
+    /// The rung the user chose. Kept as chosen even while a smaller screen
+    /// clamps it, so the preference comes back on the larger display.
+    private var sizeStep: Int {
+        get { UserDefaults.standard.integer(forKey: Self.sizeStepKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.sizeStepKey) }
+    }
+    private static let sizeStepKey = "expandedSizeStep"
 
     private var panel: NotchPanel?
     private var pill: NotchPanelPill?
@@ -41,10 +52,29 @@ final class AppRootController: ObservableObject {
 
     var collapsedSize: CGSize { geometry?.collapsedSize ?? AppGeometryReader.fallbackSize }
 
-    /// The panel is the expanded shape plus the band under it that holds the dock.
-    private var panelSize: CGSize {
-        CGSize(width: expandedSize.width + NotchShape.maxTopCornerRadius * 2,
-               height: expandedSize.height + NotchDock.reserve)
+    private var panelSize: CGSize { AppGeometryReader.panelSize(forExpanded: expandedSize) }
+
+    // MARK: - Expanded size
+
+    /// Moves the expanded size one rung up or down the ladder. Stops at the
+    /// ladder's floor and at the largest rung the current screen can hold.
+    func adjustExpandedSize(by delta: Int) {
+        let current = clampedSizeStep(sizeStep)
+        let next = clampedSizeStep(current + delta)
+        guard next != current else { return }
+        sizeStep = next
+        applyExpandedSize()
+        layoutPanel()
+    }
+
+    private func clampedSizeStep(_ step: Int) -> Int {
+        let ceiling = max(geometry?.maxExpandedStep ?? step, ExpandedSizeLadder.minStep)
+        return min(max(step, ExpandedSizeLadder.minStep), ceiling)
+    }
+
+    private func applyExpandedSize() {
+        let size = ExpandedSizeLadder.size(at: clampedSizeStep(sizeStep))
+        if size != expandedSize { expandedSize = size }
     }
 
     // MARK: - Dock
@@ -167,21 +197,21 @@ final class AppRootController: ObservableObject {
         guard let screen = AppGeometryReader.preferredScreen() else { return }
         let geometry = AppGeometryReader(screen: screen)
         self.geometry = geometry
+        // The new screen may hold fewer rungs than the saved step.
+        applyExpandedSize()
+
+        if panel != nil {
+            layoutPanel()
+            return
+        }
 
         // Fixed frame, big enough for the expanded state and the dock below
         // it. Collapsed just means most of the panel is transparent and
         // doesn't hit-test. Slightly wider than the expanded shape so its top
         // "ears" aren't clipped by the window.
         let frame = geometry.frame(for: panelSize)
-
-        if let panel {
-            panel.setFrame(frame, display: true)
-            pill?.frame = pillFrame(in: frame)
-            terminal.view.frame = terminalFrame(in: frame)
-            return
-        }
-
         let panel = NotchPanel(contentRect: frame)
+        panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
         let panelBody = NotchPanelBody().environmentObject(self)
 
         let container = NSView(frame: NSRect(origin: .zero, size: frame.size))
@@ -221,6 +251,17 @@ final class AppRootController: ObservableObject {
         panel.acceptsMouseMovedEvents = true
         panel.orderFrontRegardless()
         self.panel = panel
+    }
+
+    /// Moves the panel and the views that don't autoresize to the frame the
+    /// current screen and expanded size call for. Never animated: the SwiftUI
+    /// body only animates on expand/collapse, so both snap together.
+    private func layoutPanel() {
+        guard let panel, let geometry else { return }
+        let frame = geometry.frame(for: panelSize)
+        panel.setFrame(frame, display: true)
+        pill?.frame = pillFrame(in: frame)
+        terminal.view.frame = terminalFrame(in: frame)
     }
 
     private func pillFrame(in panelFrame: NSRect) -> NSRect {

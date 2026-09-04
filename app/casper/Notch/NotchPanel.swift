@@ -27,6 +27,12 @@ final class NotchPanel: NSPanel {
         level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
     }
 
+    /// Receives +1 for ⌘⇧+ and -1 for ⌘⇧-. Both keys are matched by the
+    /// character they produce with Shift ("+" or "=" up, "-" or "_" down) so
+    /// layouts where plus lives on the equals key and ones where it doesn't
+    /// both work.
+    var onSizeStep: ((Int) -> Void)?
+
     // Borderless windows refuse key status unless we opt in — the terminal needs keyboard input.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -37,24 +43,57 @@ final class NotchPanel: NSPanel {
         frameRect
     }
 
+    /// AppKit's own key-equivalent pass runs from NSApplication before
+    /// `sendEvent`, and if nobody claims a ⌘⇧ key it retries with Shift
+    /// stripped. Ghostty claims that retry for minus (⌘- is its font
+    /// binding), so the size shortcuts must be taken here, ahead of it.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let delta = Self.sizeStep(for: event), let onSizeStep {
+            onSizeStep(delta)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func sendEvent(_ event: NSEvent) {
-        // macOS separates "the active app" (the one named in the menu bar) from
-        // "the key window" (the one window that receives typing). Because this
-        // panel uses .nonactivatingPanel, it becomes the key window without
-        // making this app active: the user types into the notch while, say,
-        // Safari still counts as the active app. That combination defeats
-        // AppKit's built-in ⌘-shortcut handling — the "ask every view whether
-        // it wants this shortcut" pass (performKeyEquivalent) only runs for the
-        // active app, and we usually aren't it. So for ⌘ keystrokes we run that
-        // pass ourselves: calling performKeyEquivalent on the content view asks
-        // it and, recursively, every subview (including the terminal screen)
-        // until one returns true. If a view claims the shortcut we stop here;
-        // otherwise the event goes through normal delivery.
+        // As a .nonactivatingPanel this window takes key status without
+        // making the app active, so the user types here while another app
+        // owns the menu bar. AppKit only runs its ⌘-shortcut pass
+        // (performKeyEquivalent down the view tree) for the active app, so
+        // for ⌘ keys we run it ourselves and stop if a view claims the key.
+        //
+        // Size shortcuts go first: Ghostty binds ⌘+ to font size, and on a
+        // US layout ⌘⇧= produces that plus, so the terminal would take it.
+        if let delta = Self.sizeStep(for: event), let onSizeStep {
+            onSizeStep(delta)
+            return
+        }
         if event.type == .keyDown,
            event.modifierFlags.contains(.command),
            contentView?.performKeyEquivalent(with: event) == true {
             return
         }
         super.sendEvent(event)
+    }
+
+    private static func sizeStep(for event: NSEvent) -> Int? {
+        guard event.type == .keyDown,
+              event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift]
+        else { return nil }
+        // With ⌘ held AppKit reports the key inconsistently across layouts:
+        // sometimes the shifted character, sometimes the base one, sometimes
+        // the US-layout equivalent. Check every reading, then the physical
+        // keys for the US positions and the keypad.
+        let readings = [event.charactersIgnoringModifiers,
+                        event.characters,
+                        event.characters(byApplyingModifiers: []),
+                        event.characters(byApplyingModifiers: .shift)].compactMap { $0 }
+        if readings.contains(where: { ["+", "="].contains($0) }) { return 1 }
+        if readings.contains(where: { ["-", "_"].contains($0) }) { return -1 }
+        switch event.keyCode {
+        case 24, 69: return 1   // ANSI equal, keypad plus
+        case 27, 78: return -1  // ANSI minus, keypad minus
+        default: return nil
+        }
     }
 }
