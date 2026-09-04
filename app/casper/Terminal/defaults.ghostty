@@ -1,0 +1,7 @@
+# Casper's own terminal defaults. This is the lowest layer of the
+# configuration cascade, loaded before the user's Ghostty config, so anything
+# here can be overridden from ~/.config/ghostty/config or, for the notch
+# only, from ~/.config/casper/config.ghostty.
+#
+# Keys are Ghostty's: https://ghostty.org/docs/config/reference
+theme = Dark Pastel
