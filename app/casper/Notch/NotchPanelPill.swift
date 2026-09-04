@@ -49,14 +49,21 @@ final class NotchPanelPill: NSView {
     override func mouseDown(with event: NSEvent) { onClick?() }
 
     private func configure() {
-        iconView.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Casper")
+        /*
+         let icon = NSImage(resource: .menuBarIcon).copy() as! NSImage
+         icon.size = NSSize(width: 13, height: 13)
+         icon.accessibilityDescription = "Casper"
+         iconView.image = icon
+         iconView.contentTintColor = NSColor.magenta
+         */
+        iconView.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Casper")
         iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
         iconView.contentTintColor = NSColor.white.withAlphaComponent(0.92)
         iconView.imageScaling = .scaleNone
         iconView.imageAlignment = .alignRight
         iconView.setAccessibilityElement(false)
         let side = AppGeometryReader.collapsedSideInset
-        let rightPadding: CGFloat = 10
+        let rightPadding: CGFloat = 12
         let bottomPadding: CGFloat = 2
         iconView.frame = NSRect(x: bounds.width - side - rightPadding, y: 0 + bottomPadding, width: side, height: bounds.height)
         iconView.autoresizingMask = [.height, .maxXMargin]
