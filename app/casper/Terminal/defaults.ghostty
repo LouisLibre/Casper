@@ -5,3 +5,7 @@
 #
 # Keys are Ghostty's: https://ghostty.org/docs/config/reference
 theme = Dark Pastel
+window-padding-x = 4
+window-padding-y = 6
+window-padding-balance = true
+window-padding-color = extend

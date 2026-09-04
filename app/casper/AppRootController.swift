@@ -204,13 +204,13 @@ final class AppRootController: ObservableObject {
 
     private func terminalFrame(in panelFrame: NSRect) -> NSRect {
         /// inset to match the expanded shape's rounded corners.
-        let topInset = collapsedSize.height + 6
+        let topInset = collapsedSize.height
         /// The expanded shape is centered in the (wider) panel; keep the terminal inside it.
         let sideMargin = (panelFrame.width - expandedSize.width) / 2
-        return NSRect(x: sideMargin + 14,
-                      y: 14,
-                      width: expandedSize.width - 28,
-                      height: panelFrame.height - topInset - 14)
+        return NSRect(x: sideMargin + 7,
+                      y: 7,
+                      width: expandedSize.width - 14,
+                      height: panelFrame.height - topInset - 7)
     }
 
     // Display connected/disconnected or resolution changed — the notch may have moved or vanished.

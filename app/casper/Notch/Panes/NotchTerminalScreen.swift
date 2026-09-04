@@ -35,7 +35,7 @@ final class NotchTerminalScreen {
         // The actual terminal frame gets set by AppRootController. Initialize it to zero to avoid dual sources of truth
         view = NSView(frame: .zero)
         view.wantsLayer = true
-        view.layer?.cornerRadius = 10
+        view.layer?.cornerRadius = 15
         view.layer?.masksToBounds = true
         view.isHidden = true
     }
