@@ -1,9 +1,9 @@
 //
 //  NotchDock.swift
 //
-//  Floating glass menu under the expanded shape. Two groups: controls for the
-//  active pane on the left, and the tabs on the right: one per open terminal,
-//  then settings. The groups are Liquid Glass on macOS 26; older systems get
+//  Floating glass menu under the expanded shape. Two groups: settings on the
+//  left, and the tabs on the right: one per open terminal, then a plus that
+//  opens another. The groups are Liquid Glass on macOS 26; older systems get
 //  the body's frosted backdrop with a hand-drawn rim. The body itself stays on
 //  the frosted backdrop on purpose (see NotchBackdrop): the dock is only
 //  visible while the panel is expanded and key, so the glass flattening on
@@ -26,10 +26,10 @@ struct NotchDock: View {
     private static let slot: CGFloat = height
     /// Highlight behind the selected tab: a hair wider than tall.
     private static let tabHighlightSize = CGSize(width: 46, height: 40)
-    /// Hover highlight for a standalone control. Its capsule is a circle, so
-    /// the highlight is a circle inset evenly from it to keep the two concentric.
+    /// Highlight for a standalone control. Its capsule is a circle, so the
+    /// highlight is a circle inset evenly from it to keep the two concentric.
     private static let controlHighlightSize = CGSize(width: 40, height: 40)
-    private static let groupSpacing: CGFloat = 22
+    private static let groupSpacing: CGFloat = 12
     private static let capsuleEndPadding: CGFloat = 6
 
     /// Dark fill under clear glass. A black *tint* on regular glass turns the
@@ -46,18 +46,6 @@ struct NotchDock: View {
     var body: some View {
         DockGroups {
             HStack(spacing: Self.groupSpacing) {
-                // Pane controls. Standalone buttons carry their state in the
-                // symbol (filled when on) and never draw a highlight.
-                DockGlass {
-                    DockButton(symbol: controller.isTerminalTransparent ? "square.on.square" : "square.fill.on.square.fill",
-                               label: "Transparency",
-                               isOn: !controller.isTerminalTransparent,
-                               highlighted: false,
-                               highlightSize: Self.controlHighlightSize) {
-                        controller.toggleTerminalTransparency()
-                    }
-                }
-
                 DockGlass {
                     HStack(spacing: 0) {
                         // One tab per open terminal; ⌘T adds one, ⌘W closes the active one.
@@ -69,13 +57,23 @@ struct NotchDock: View {
                                 controller.activate(terminal)
                             }
                         }
-                        DockButton(symbol: "line.3.horizontal", label: "Settings",
-                                   isOn: controller.isShowingSettings,
-                                   highlighted: controller.isShowingSettings) {
-                            controller.showSettings()
+                        // Same as ⌘T.
+                        DockButton(symbol: "plus", label: "New Terminal",
+                                   isOn: false,
+                                   highlighted: false) {
+                            controller.newTerminal()
                         }
                     }
                     .padding(.horizontal, Self.capsuleEndPadding)
+                }
+                // Settings, selected while its pane is up in place of the terminal.
+                DockGlass {
+                    DockButton(symbol: controller.isShowingSettings ? "gearshape.fill" : "gearshape", label: "Settings",
+                               isOn: controller.isShowingSettings,
+                               highlighted: controller.isShowingSettings,
+                               highlightSize: Self.controlHighlightSize) {
+                        controller.showSettings()
+                    }
                 }
             }
             // The tab capsule grows and shrinks as terminals come and go.

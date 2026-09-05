@@ -10,9 +10,9 @@
 //    - right button pressed outside the panel    -> collapse
 //    - Moving the mouse away does NOT collapse.
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
-//    - ⌘T                                        -> open another terminal tab
+//    - ⌘T or the plus in the dock                -> open another terminal tab
 //    - ⌘W with two or more tabs open             -> close the active tab
-//    - settings tab in the dock                  -> settings pane in place of the terminal
+//    - settings button in the dock               -> settings pane in place of the terminal
 //
 
 import AppKit
@@ -101,7 +101,7 @@ final class AppRootController: ObservableObject {
 
     // MARK: - Terminals
 
-    /// ⌘T: opens another terminal and switches to it.
+    /// ⌘T and the dock's plus: opens another terminal and switches to it.
     func newTerminal() {
         activate(addTerminal())
     }
