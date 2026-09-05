@@ -10,9 +10,9 @@
 //  tying it to the panel, so it can land behind it, stay on the Space it
 //  opened on, or be refused on a full-screen Space. Attaching the alert as a
 //  child window makes the window server carry it wherever the panel goes.
-//  Its level still has to be raised by hand: the window server orders by
-//  level before it honors the child link, and the modal session lowers the
-//  alert to the modal panel level, under the panel.
+//  Its level still has to be raised by hand: AppKit sets the modal panel
+//  level when the session starts and restores it when the app activates,
+//  including activation after changing Spaces. Both put it under the notch.
 //
 
 import AppKit
@@ -33,27 +33,38 @@ extension NotchPanel {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         addChildWindow(window, ordered: .above)
 
-        // Starting the modal session drops the alert to the modal panel
-        // level; raise it on the first pass of the modal run loop. This has
-        // to be a run loop block, not a main-queue block: confirm may itself
-        // be running inside a main-queue block, and libdispatch does not
-        // drain the main queue again until that block returns, which is
-        // after the alert is gone. A block that ran then would bring the
-        // dismissed alert back as a dead window.
         let alertLevel = NSWindow.Level(rawValue: level.rawValue + 1)
-        RunLoop.main.perform(inModes: [.common]) {
+        let raiseAlert: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 guard NSApp.modalWindow === window else { return }
                 window.level = alertLevel
             }
         }
 
-        // The alert is a regular window: unlike this nonactivating panel it
-        // only takes keyboard input while the app is active.
+        // Activation can finish after the first modal-loop pass. AppKit
+        // restores level 8 while handling that event, undoing our first
+        // raise. Reapply after activation, synchronously: a main-queue
+        // callback can be blocked by the caller's own modal session.
+        let activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: NSApp,
+            queue: nil
+        ) { _ in
+            raiseAlert()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(activationObserver)
+            removeChildWindow(window)
+            makeKeyAndOrderFront(nil)
+        }
+
+        // The session also sets the initial modal level. A run-loop block
+        // works even when confirm itself was called from the main queue.
+        RunLoop.main.perform(inModes: [.modalPanel], block: raiseAlert)
+
+        // Unlike the nonactivating notch, the alert needs an active app
+        // for keyboard input.
         NSApp.activate(ignoringOtherApps: true)
-        let confirmed = alert.runModal() == .alertFirstButtonReturn
-        removeChildWindow(window)
-        makeKeyAndOrderFront(nil)
-        return confirmed
+        return alert.runModal() == .alertFirstButtonReturn
     }
 }
