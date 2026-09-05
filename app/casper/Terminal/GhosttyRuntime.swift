@@ -267,9 +267,9 @@ final class GhosttyRuntime {
         }
     }
 
-    /// Returns true when the action was performed. Anything a single embedded
-    /// terminal cannot do (windows, tabs, splits, quitting) reports false, which
-    /// libghostty treats as a no-op.
+    /// Returns true when the action was performed. Anything the notch cannot
+    /// do (windows, splits, quitting) reports false, which libghostty treats
+    /// as a no-op.
     private nonisolated static func action(_ app: ghostty_app_t?,
                                            target: ghostty_target_s,
                                            action: ghostty_action_s) -> Bool {
@@ -300,6 +300,11 @@ final class GhosttyRuntime {
 
             case GHOSTTY_ACTION_OPEN_CONFIG:
                 return openUserConfig()
+
+            case GHOSTTY_ACTION_NEW_TAB:
+                guard let request = surfaceView(for: target)?.onNewTabRequest else { return false }
+                request()
+                return true
 
             case GHOSTTY_ACTION_RING_BELL:
                 NSSound.beep()

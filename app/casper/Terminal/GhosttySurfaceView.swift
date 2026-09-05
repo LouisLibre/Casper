@@ -5,7 +5,8 @@
 //  Metal renderer and the shell behind it. Owns the ghostty_surface_t and
 //  translates AppKit input into libghostty calls. Modeled on the Ghostty
 //  app's SurfaceView_AppKit.swift, trimmed to what a single embedded terminal
-//  needs: no splits, tabs, menus or services.
+//  needs: no splits, menus or services. Tabs are the app's business; the
+//  view only reports the keybinds that ask for them.
 //
 //  libghostty replaces this view's layer with its own render layer and turns
 //  on clipsToBounds while the surface is created, so anything that has to
@@ -27,6 +28,9 @@ final class GhosttySurfaceView: NSView {
     /// is still running. Called from inside libghostty's own event
     /// processing, so tear down on a later runloop turn, never inline.
     var onCloseRequest: ((_ processAlive: Bool) -> Void)?
+    /// Ghostty's new_tab binding fired while this surface had focus. Called
+    /// from inside libghostty's event processing, like `onCloseRequest`.
+    var onNewTabRequest: (() -> Void)?
 
     private(set) var focused = false
     private var markedText = NSMutableAttributedString()

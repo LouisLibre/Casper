@@ -12,10 +12,10 @@ struct NotchCornerControls: View {
     @EnvironmentObject private var controller: AppRootController
 
     /// Distance from the shape's right edge.
-    static let padding: CGFloat = 12
+    static let padding: CGFloat = 16
     static let spacing: CGFloat = 8
     /// Same point size and weight as the pill's chevron so the three read as one set.
-    static let symbolSize: CGFloat = 15
+    static let symbolSize: CGFloat = 16
     static let symbolWeight: Font.Weight = .regular
     static let restingOpacity = 0.44
     static let hoverOpacity = 1.0

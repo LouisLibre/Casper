@@ -1,12 +1,13 @@
 //
 //  NotchTerminalScreen.swift
 //
-//  Owns the one libghostty terminal for the app's lifetime. The container
-//  view is created once, stays in the panel's view hierarchy forever, and
+//  One libghostty terminal, alive for as long as its tab is open. The
+//  container view is created once, stays in the panel's view hierarchy and
 //  never resizes on expand/collapse — so scrollback, running programs and the
 //  shell itself all survive collapsing the notch, and TUIs never see SIGWINCH.
 //  Expanding animates a layer mask that tracks the black shape, revealing the
-//  full-size terminal underneath.
+//  full-size terminal underneath. Every open terminal shares the same frame;
+//  only the active one is visible, the rest keep running hidden behind it.
 //
 //  The libghostty surface view sits inside the container rather than being
 //  the container: libghostty installs its own render layer on the view it is
@@ -17,7 +18,9 @@
 import AppKit
 
 @MainActor
-final class NotchTerminalScreen {
+final class NotchTerminalScreen: Identifiable {
+    nonisolated let id = UUID()
+
     /// Carries the rounded corners and the reveal mask; the surface fills it.
     let view: NSView
 
@@ -25,8 +28,15 @@ final class NotchTerminalScreen {
     /// shell replaces one that exited.
     private(set) var surfaceView: GhosttySurfaceView?
 
-    /// What should be first responder while the panel is expanded.
+    /// What should be first responder while this terminal is on screen.
     var inputView: NSView? { surfaceView }
+
+    /// Ghostty's new_tab binding (⌘T) fired in this terminal.
+    var onNewTabRequest: (() -> Void)?
+    /// libghostty wants this terminal gone: the shell exited
+    /// (`processAlive == false`), or the close binding (⌘W) fired. The owner
+    /// decides between closing the tab and starting a fresh shell.
+    var onCloseRequest: ((_ processAlive: Bool) -> Void)?
 
     private var started = false
     private var revealed = false
@@ -40,9 +50,9 @@ final class NotchTerminalScreen {
         view.isHidden = true
     }
 
-    /// Launches the user's login shell. Called once at app start, after the
-    /// container has its frame and lives in the panel; the process keeps
-    /// running regardless of the notch's expanded state.
+    /// Launches the user's login shell. Called once, after the container has
+    /// its frame and lives in the panel; the process keeps running regardless
+    /// of the notch's expanded state.
     func startShellIfNeeded() {
         guard !started else { return }
         started = true
@@ -58,14 +68,13 @@ final class NotchTerminalScreen {
         let surface = GhosttySurfaceView(frame: view.bounds, app: app)
         guard surface.surface != nil else { return }
         surface.autoresizingMask = [.width, .height]
+        // Both requests arrive from inside libghostty's own event processing,
+        // so they are passed on from a later runloop turn, never inline.
+        surface.onNewTabRequest = { [weak self] in
+            DispatchQueue.main.async { self?.onNewTabRequest?() }
+        }
         surface.onCloseRequest = { [weak self] processAlive in
-            // A close keybind with a process still running has nothing to
-            // confirm it here, so it is ignored. The shell exiting (`exit`,
-            // or ⌘W on an idle shell) gets a fresh shell so the notch always
-            // has a live terminal. Deferred: this arrives from inside
-            // libghostty's own event processing.
-            guard !processAlive else { return }
-            DispatchQueue.main.async { self?.respawnSurface() }
+            DispatchQueue.main.async { self?.onCloseRequest?(processAlive) }
         }
         view.addSubview(surface)
         surfaceView = surface
@@ -73,12 +82,41 @@ final class NotchTerminalScreen {
         if revealed { view.window?.makeFirstResponder(surface) }
     }
 
-    private func respawnSurface() {
+    /// Replaces an exited shell with a fresh one in the same tab.
+    func respawn() {
         guard let old = surfaceView else { return }
         old.close()
         old.removeFromSuperview()
         surfaceView = nil
         spawnSurface()
+    }
+
+    /// Ends the shell and takes the terminal out of the panel for good.
+    func close() {
+        surfaceView?.close()
+        surfaceView?.removeFromSuperview()
+        surfaceView = nil
+        cancelMaskAnimation()
+        view.removeFromSuperview()
+    }
+
+    // MARK: - Tab switching
+
+    /// Puts this terminal on screen at once, without the reveal animation.
+    /// For switching tabs while the panel is already expanded.
+    func show() {
+        revealed = true
+        cancelMaskAnimation()
+        view.isHidden = false
+        surfaceView?.setVisible(true)
+    }
+
+    /// Takes this terminal off screen at once; another tab took its place.
+    func hide() {
+        revealed = false
+        cancelMaskAnimation()
+        view.isHidden = true
+        surfaceView?.setVisible(false)
     }
 
     // MARK: - Reveal mask
@@ -112,6 +150,12 @@ final class NotchTerminalScreen {
     private var maskLayer: CALayer?
     /// Invalidates stale completion blocks when an animation is retargeted.
     private var maskGeneration = 0
+
+    /// Drops the mask and disowns any completion still pending on it.
+    private func cancelMaskAnimation() {
+        maskGeneration += 1
+        removeMask()
+    }
 
     private func removeMask() {
         maskLayer?.removeAllAnimations()

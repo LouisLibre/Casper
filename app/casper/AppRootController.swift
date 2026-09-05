@@ -10,6 +10,8 @@
 //    - right button pressed outside the panel    -> collapse
 //    - Moving the mouse away does NOT collapse.
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
+//    - ⌘T                                        -> open another terminal tab
+//    - ⌘W with two or more tabs open             -> close the active tab
 //
 
 import AppKit
@@ -19,9 +21,10 @@ import SwiftUI
 @MainActor
 final class AppRootController: ObservableObject {
     @Published private(set) var isExpanded = false
-    /// Tab highlighted in the dock. Settings has no pane yet, so it never
-    /// becomes selected; see `select(_:)`.
-    @Published private(set) var selectedTab: NotchTab = .terminal
+    /// Every open terminal, in dock order. Never empty once `start()` ran.
+    @Published private(set) var terminals: [NotchTerminalScreen] = []
+    /// The terminal on screen while expanded, highlighted in the dock.
+    @Published private(set) var activeTerminal: NotchTerminalScreen?
     /// Whether the shape shows the frosted backdrop (on) or flat black (off).
     @Published private(set) var isTerminalTransparent = true
 
@@ -39,12 +42,18 @@ final class AppRootController: ObservableObject {
     }
     private static let sizeStepKey = "expandedSizeStep"
 
+    /// How many terminals the last run had open, so the next launch reopens
+    /// the same number. Written on every open and close.
+    private static let terminalCountKey = "terminalCount"
+    private var savedTerminalCount: Int {
+        get { UserDefaults.standard.integer(forKey: Self.terminalCountKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.terminalCountKey) }
+    }
+
     private var panel: NotchPanel?
     private var pill: NotchPanelPill?
     private var body: NotchPanelBody?
 
-    let terminal = NotchTerminalScreen()
-    
     private var geometry: AppGeometryReader?
     private var globalClickMonitor: Any?
     /// Runs from an outside left press until the button comes up again.
@@ -77,22 +86,87 @@ final class AppRootController: ObservableObject {
         if size != expandedSize { expandedSize = size }
     }
 
-    // MARK: - Dock
+    // MARK: - Terminals
 
-    func select(_ tab: NotchTab) {
-        switch tab {
-        case .terminal:
-            selectedTab = .terminal
-        case .settings:
-            // No settings pane yet: behaves like ⌘, and leaves the terminal selected.
-            GhosttyRuntime.openUserConfig()
+    /// ⌘T: opens another terminal and switches to it.
+    func newTerminal() {
+        activate(addTerminal())
+    }
+
+    /// Shows a terminal and gives it the keyboard. Only the active terminal
+    /// is visible; the others keep running hidden behind it.
+    func activate(_ terminal: NotchTerminalScreen) {
+        let previous = activeTerminal
+        activeTerminal = terminal
+        guard isExpanded else { return }
+        if previous !== terminal {
+            previous?.hide()
+            terminal.show()
         }
         panel?.makeFirstResponder(terminal.inputView)
     }
 
+    @discardableResult
+    private func addTerminal() -> NotchTerminalScreen {
+        let terminal = NotchTerminalScreen()
+        terminal.onNewTabRequest = { [weak self] in self?.newTerminal() }
+        terminal.onCloseRequest = { [weak self, weak terminal] processAlive in
+            guard let self, let terminal else { return }
+            self.closeRequested(by: terminal, processAlive: processAlive)
+        }
+        if let panel, let container = panel.contentView {
+            terminal.view.frame = terminalFrame(in: panel.frame)
+            // Above the SwiftUI body, below the pill.
+            container.addSubview(terminal.view, positioned: .below, relativeTo: pill)
+        }
+        terminals.append(terminal)
+        savedTerminalCount = terminals.count
+        terminal.startShellIfNeeded()
+        return terminal
+    }
+
+    /// The notch always keeps a live terminal. With one tab open, a shell
+    /// that exited gets a fresh one and a close keybind with a process still
+    /// running is ignored. With more tabs the terminal closes, after asking
+    /// when that would end a running process.
+    private func closeRequested(by terminal: NotchTerminalScreen, processAlive: Bool) {
+        // Requests arrive deferred, so this one may be for a tab already gone.
+        guard terminals.contains(where: { $0 === terminal }) else { return }
+        if terminals.count < 2 {
+            if !processAlive { terminal.respawn() }
+            return
+        }
+        if processAlive {
+            let close = confirm("Close this terminal?",
+                                detail: "A process is still running in it and will end.",
+                                button: "Close")
+            guard close else { return }
+        }
+        removeTerminal(terminal)
+    }
+
+    private func removeTerminal(_ terminal: NotchTerminalScreen) {
+        guard let index = terminals.firstIndex(where: { $0 === terminal }) else { return }
+        terminals.remove(at: index)
+        savedTerminalCount = terminals.count
+        if terminal === activeTerminal {
+            // The tab to its right takes over, or the new last tab when it was rightmost.
+            activate(terminals[min(index, terminals.count - 1)])
+        }
+        terminal.close()
+    }
+
+    // MARK: - Dock
+
+    /// No settings pane yet: behaves like ⌘, and leaves the terminal focused.
+    func openSettings() {
+        GhosttyRuntime.openUserConfig()
+        panel?.makeFirstResponder(activeTerminal?.inputView)
+    }
+
     func toggleTerminalTransparency() {
         isTerminalTransparent.toggle()
-        panel?.makeFirstResponder(terminal.inputView)
+        panel?.makeFirstResponder(activeTerminal?.inputView)
     }
 
     // MARK: - Corner controls
@@ -101,38 +175,30 @@ final class AppRootController: ObservableObject {
         setExpanded(false)
     }
 
-    /// Asks before quitting: the shell and anything running in it die with
-    /// the app. The app is activated first because the nonactivating panel
-    /// never brings it forward on its own.
+    /// Asks before quitting: the shells and anything running in them die
+    /// with the app.
     func confirmQuit() {
-        let alert = NSAlert()
-        alert.messageText = "Quit Casper?"
-        alert.informativeText = "The terminal session and anything running in it will end."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
-        // Starting the modal session resets the alert window to the modal
-        // panel level, which is below the panel's. Raise it once the session
-        // is running, from the next main-queue turn.
-        if let panel {
-            let level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
-            DispatchQueue.main.async {
-                alert.window.level = level
-                alert.window.orderFrontRegardless()
-            }
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            panel?.makeKeyAndOrderFront(nil)
-            panel?.makeFirstResponder(terminal.inputView)
-            return
-        }
-        NSApp.terminate(nil)
+        let quit = confirm("Quit Casper?",
+                           detail: "Every terminal session and anything running in it will end.",
+                           button: "Quit")
+        if quit { NSApp.terminate(nil) }
+    }
+
+    /// Every confirmation goes through the panel, which owns the one way
+    /// dialogs are kept in front of it (see NotchPanel+Confirm). Afterwards
+    /// the terminal gets the keyboard back.
+    private func confirm(_ message: String, detail: String, button: String) -> Bool {
+        guard let panel else { return false }
+        let confirmed = panel.confirm(message, detail: detail, button: button)
+        panel.makeFirstResponder(activeTerminal?.inputView)
+        return confirmed
     }
 
     func start() {
         rebuildPanel()
-        terminal.startShellIfNeeded()
+        // Reopen as many tabs as the last run had, and at least one.
+        for _ in 0..<max(savedTerminalCount, 1) { addTerminal() }
+        activeTerminal = terminals.first
 
         NotificationCenter.default.addObserver(
             self,
@@ -194,11 +260,11 @@ final class AppRootController: ObservableObject {
     }
 
     private func setExpanded(_ expanded: Bool) {
-        guard expanded != isExpanded, let panel else { return }
+        guard expanded != isExpanded, let panel, let terminal = activeTerminal else { return }
         isExpanded = expanded
 
-        let collapsedShape = shapeRectInTerminalSpace(for: collapsedSize)
-        let expandedShape = shapeRectInTerminalSpace(for: expandedSize)
+        let collapsedShape = shapeRectInTerminalSpace(for: collapsedSize, of: terminal)
+        let expandedShape = shapeRectInTerminalSpace(for: expandedSize, of: terminal)
 
         pill?.setIconVisible(!expanded, animated: true)
         if expanded {
@@ -216,7 +282,7 @@ final class AppRootController: ObservableObject {
     /// view's coordinate space for its reveal mask. Inset a hair so the mask
     /// edge stays behind the shape's anti-aliased edge even if the two
     /// animation clocks drift within a frame.
-    private func shapeRectInTerminalSpace(for size: CGSize) -> CGRect {
+    private func shapeRectInTerminalSpace(for size: CGSize, of terminal: NotchTerminalScreen) -> CGRect {
         guard let container = terminal.view.superview else { return .zero }
         let panelSize = container.bounds.size
         let shape = NSRect(x: (panelSize.width - size.width) / 2,
@@ -260,9 +326,6 @@ final class AppRootController: ObservableObject {
         hosting.autoresizingMask = [.width, .height]
         container.addSubview(hosting)
 
-        terminal.view.frame = terminalFrame(in: frame)
-        container.addSubview(terminal.view)
-
         // Pill hit-target view pinned over the place where the physical hardware notch is supposed to be.
         let pill = NotchPanelPill(frame: pillFrame(in: frame))
         pill.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
@@ -296,7 +359,9 @@ final class AppRootController: ObservableObject {
         let frame = geometry.frame(for: panelSize)
         panel.setFrame(frame, display: true)
         pill?.frame = pillFrame(in: frame)
-        terminal.view.frame = terminalFrame(in: frame)
+        for terminal in terminals {
+            terminal.view.frame = terminalFrame(in: frame)
+        }
     }
 
     private func pillFrame(in panelFrame: NSRect) -> NSRect {

@@ -2,37 +2,15 @@
 //  NotchDock.swift
 //
 //  Floating glass menu under the expanded shape. Two groups: controls for the
-//  active pane on the left, and the pane tabs on the right. The groups are
-//  Liquid Glass on macOS 26; older systems get the body's frosted backdrop
-//  with a hand-drawn rim. The body itself stays on the frosted backdrop on
-//  purpose (see NotchBackdrop): the dock is only visible while the panel is
-//  expanded and key, so the glass flattening on key loss barely shows here.
+//  active pane on the left, and the tabs on the right: one per open terminal,
+//  then settings. The groups are Liquid Glass on macOS 26; older systems get
+//  the body's frosted backdrop with a hand-drawn rim. The body itself stays on
+//  the frosted backdrop on purpose (see NotchBackdrop): the dock is only
+//  visible while the panel is expanded and key, so the glass flattening on
+//  key loss barely shows here.
 //
 
 import SwiftUI
-
-/// Panes the dock can switch between. Only the terminal exists as a pane
-/// today; settings opens the config file until it gets a pane of its own.
-enum NotchTab: CaseIterable, Identifiable {
-    case terminal
-    case settings
-
-    var id: Self { self }
-
-    var symbol: String {
-        switch self {
-        case .terminal: "apple.terminal"
-        case .settings: "line.3.horizontal"
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .terminal: "Terminal"
-        case .settings: "Settings"
-        }
-    }
-}
 
 struct NotchDock: View {
     @EnvironmentObject private var controller: AppRootController
@@ -82,17 +60,27 @@ struct NotchDock: View {
 
                 DockGlass {
                     HStack(spacing: 0) {
-                        ForEach(NotchTab.allCases) { tab in
-                            DockButton(symbol: tab.symbol, label: tab.label,
-                                       isOn: controller.selectedTab == tab,
-                                       highlighted: controller.selectedTab == tab) {
-                                controller.select(tab)
+                        // One tab per open terminal; ⌘T adds one, ⌘W closes the active one.
+                        ForEach(Array(controller.terminals.enumerated()), id: \.element.id) { index, terminal in
+                            let isActive = terminal === controller.activeTerminal
+                            DockButton(symbol: "apple.terminal", label: "Terminal \(index + 1)",
+                                       isOn: isActive,
+                                       highlighted: isActive) {
+                                controller.activate(terminal)
                             }
+                        }
+                        // No settings pane yet, so it never reads as selected.
+                        DockButton(symbol: "line.3.horizontal", label: "Settings",
+                                   isOn: false,
+                                   highlighted: false) {
+                            controller.openSettings()
                         }
                     }
                     .padding(.horizontal, Self.capsuleEndPadding)
                 }
             }
+            // The tab capsule grows and shrinks as terminals come and go.
+            .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
         }
         .environment(\.colorScheme, .dark)
     }
