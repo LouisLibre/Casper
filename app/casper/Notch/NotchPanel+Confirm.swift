@@ -31,6 +31,15 @@ extension NotchPanel {
 
         let window = alert.window
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        // NSAlert only centers a window it has not shown yet, and attaching
+        // the child shows it at once, so place it first. Moving it onto this
+        // panel's screen makes center() use that screen: exact horizontally,
+        // a little above the middle, the way AppKit places every alert.
+        alert.layout()
+        window.setFrameOrigin(frame.origin)
+        window.center()
+
         addChildWindow(window, ordered: .above)
 
         let alertLevel = NSWindow.Level(rawValue: level.rawValue + 1)
