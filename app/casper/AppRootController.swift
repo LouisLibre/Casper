@@ -128,8 +128,9 @@ final class AppRootController: ObservableObject {
     }
 
     /// Dock clicks land in the SwiftUI body, so the pane gets the keyboard
-    /// back afterwards.
-    private func focusActivePane() {
+    /// back afterwards. Dock controls that don't switch panes call this
+    /// themselves.
+    func focusActivePane() {
         panel?.makeFirstResponder(activePane?.inputView)
     }
 
