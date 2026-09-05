@@ -223,8 +223,8 @@ final class GhosttyRuntime {
         return opacity
     }
 
-    /// ⌘, (and the dock's settings tab) opens Casper's override file in the
-    /// user's editor, creating it with a commented template the first time.
+    /// ⌘, (and the settings pane's button) opens Casper's override file in
+    /// the user's editor, creating it with a commented template the first time.
     @discardableResult
     static func openUserConfig() -> Bool {
         let url = userConfigURL

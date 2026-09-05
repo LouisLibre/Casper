@@ -62,18 +62,17 @@ struct NotchDock: View {
                     HStack(spacing: 0) {
                         // One tab per open terminal; ⌘T adds one, ⌘W closes the active one.
                         ForEach(Array(controller.terminals.enumerated()), id: \.element.id) { index, terminal in
-                            let isActive = terminal === controller.activeTerminal
+                            let isActive = !controller.isShowingSettings && terminal === controller.activeTerminal
                             DockButton(symbol: "apple.terminal", label: "Terminal \(index + 1)",
                                        isOn: isActive,
                                        highlighted: isActive) {
                                 controller.activate(terminal)
                             }
                         }
-                        // No settings pane yet, so it never reads as selected.
                         DockButton(symbol: "line.3.horizontal", label: "Settings",
-                                   isOn: false,
-                                   highlighted: false) {
-                            controller.openSettings()
+                                   isOn: controller.isShowingSettings,
+                                   highlighted: controller.isShowingSettings) {
+                            controller.showSettings()
                         }
                     }
                     .padding(.horizontal, Self.capsuleEndPadding)

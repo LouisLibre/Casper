@@ -12,6 +12,7 @@
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - ⌘T                                        -> open another terminal tab
 //    - ⌘W with two or more tabs open             -> close the active tab
+//    - settings tab in the dock                  -> settings pane in place of the terminal
 //
 
 import AppKit
@@ -23,10 +24,14 @@ final class AppRootController: ObservableObject {
     @Published private(set) var isExpanded = false
     /// Every open terminal, in dock order. Never empty once `start()` ran.
     @Published private(set) var terminals: [NotchTerminalScreen] = []
-    /// The terminal on screen while expanded, highlighted in the dock.
+    /// The terminal on screen while expanded (unless settings is), highlighted in the dock.
     @Published private(set) var activeTerminal: NotchTerminalScreen?
+    /// The settings pane is on screen in place of the active terminal.
+    @Published private(set) var isShowingSettings = false
     /// Whether the shape shows the frosted backdrop (on) or flat black (off).
     @Published private(set) var isTerminalTransparent = true
+    /// Whether Casper is registered to start at login, mirrored from macOS.
+    @Published private(set) var opensAtLogin = LoginItem.isEnabled
 
     // human-note: (DRAFT) we should probably have a set preferred sizes based on the current user screen resolution
     /// Size of the expanded shape. A rung of `ExpandedSizeLadder`, picked by
@@ -53,6 +58,14 @@ final class AppRootController: ObservableObject {
     private var panel: NotchPanel?
     private var pill: NotchPanelPill?
     private var body: NotchPanelBody?
+    private var settingsScreen: NotchSettingsScreen?
+
+    /// What the expanded shape shows: the settings pane when selected,
+    /// otherwise the active terminal.
+    private var activePane: NotchPane? {
+        if isShowingSettings { return settingsScreen }
+        return activeTerminal
+    }
 
     private var geometry: AppGeometryReader?
     private var globalClickMonitor: Any?
@@ -93,17 +106,31 @@ final class AppRootController: ObservableObject {
         activate(addTerminal())
     }
 
-    /// Shows a terminal and gives it the keyboard. Only the active terminal
-    /// is visible; the others keep running hidden behind it.
+    /// Shows a terminal, leaving the settings pane if it was up, and gives it
+    /// the keyboard. Only the active pane is visible; the other terminals
+    /// keep running hidden behind it.
     func activate(_ terminal: NotchTerminalScreen) {
-        let previous = activeTerminal
+        let previous = activePane
         activeTerminal = terminal
-        guard isExpanded else { return }
-        if previous !== terminal {
+        isShowingSettings = false
+        switchPane(from: previous)
+    }
+
+    /// Swaps the pane on screen while expanded. While collapsed every pane
+    /// is hidden anyway and the next expand reveals the active one.
+    private func switchPane(from previous: NotchPane?) {
+        guard isExpanded, let pane = activePane else { return }
+        if previous !== pane {
             previous?.hide()
-            terminal.show()
+            pane.show()
         }
-        panel?.makeFirstResponder(terminal.inputView)
+        focusActivePane()
+    }
+
+    /// Dock clicks land in the SwiftUI body, so the pane gets the keyboard
+    /// back afterwards.
+    private func focusActivePane() {
+        panel?.makeFirstResponder(activePane?.inputView)
     }
 
     @discardableResult
@@ -115,7 +142,7 @@ final class AppRootController: ObservableObject {
             self.closeRequested(by: terminal, processAlive: processAlive)
         }
         if let panel, let container = panel.contentView {
-            terminal.view.frame = terminalFrame(in: panel.frame)
+            terminal.view.frame = paneFrame(in: panel.frame)
             // Above the SwiftUI body, below the pill.
             container.addSubview(terminal.view, positioned: .below, relativeTo: pill)
         }
@@ -151,22 +178,36 @@ final class AppRootController: ObservableObject {
         savedTerminalCount = terminals.count
         if terminal === activeTerminal {
             // The tab to its right takes over, or the new last tab when it was rightmost.
-            activate(terminals[min(index, terminals.count - 1)])
+            let next = terminals[min(index, terminals.count - 1)]
+            if isShowingSettings {
+                // The shell exited behind the settings pane; stay on it.
+                activeTerminal = next
+            } else {
+                activate(next)
+            }
         }
         terminal.close()
     }
 
-    // MARK: - Dock
+    // MARK: - Dock and settings
 
-    /// No settings pane yet: behaves like ⌘, and leaves the terminal focused.
-    func openSettings() {
-        GhosttyRuntime.openUserConfig()
-        panel?.makeFirstResponder(activeTerminal?.inputView)
+    /// Puts the settings pane where the active terminal was.
+    func showSettings() {
+        let previous = activePane
+        isShowingSettings = true
+        // The user may have changed it in System Settings meanwhile.
+        opensAtLogin = LoginItem.isEnabled
+        switchPane(from: previous)
     }
 
     func toggleTerminalTransparency() {
         isTerminalTransparent.toggle()
-        panel?.makeFirstResponder(activeTerminal?.inputView)
+        focusActivePane()
+    }
+
+    func setOpensAtLogin(_ enabled: Bool) {
+        LoginItem.setEnabled(enabled)
+        opensAtLogin = LoginItem.isEnabled
     }
 
     // MARK: - Corner controls
@@ -186,11 +227,11 @@ final class AppRootController: ObservableObject {
 
     /// Every confirmation goes through the panel, which owns the one way
     /// dialogs are kept in front of it (see NotchPanel+Confirm). Afterwards
-    /// the terminal gets the keyboard back.
+    /// the pane gets the keyboard back.
     private func confirm(_ message: String, detail: String, button: String) -> Bool {
         guard let panel else { return false }
         let confirmed = panel.confirm(message, detail: detail, button: button)
-        panel.makeFirstResponder(activeTerminal?.inputView)
+        focusActivePane()
         return confirmed
     }
 
@@ -260,36 +301,36 @@ final class AppRootController: ObservableObject {
     }
 
     private func setExpanded(_ expanded: Bool) {
-        guard expanded != isExpanded, let panel, let terminal = activeTerminal else { return }
+        guard expanded != isExpanded, let panel, let pane = activePane else { return }
         isExpanded = expanded
 
-        let collapsedShape = shapeRectInTerminalSpace(for: collapsedSize, of: terminal)
-        let expandedShape = shapeRectInTerminalSpace(for: expandedSize, of: terminal)
+        let collapsedShape = shapeRectInPaneSpace(for: collapsedSize, of: pane)
+        let expandedShape = shapeRectInPaneSpace(for: expandedSize, of: pane)
 
         pill?.setIconVisible(!expanded, animated: true)
         if expanded {
-            terminal.reveal(from: collapsedShape, to: expandedShape)
+            pane.reveal(from: collapsedShape, to: expandedShape)
             panel.makeKeyAndOrderFront(nil)
-            panel.makeFirstResponder(terminal.inputView)
+            panel.makeFirstResponder(pane.inputView)
         } else {
-            terminal.conceal(from: expandedShape, to: collapsedShape)
+            pane.conceal(from: expandedShape, to: collapsedShape)
             panel.makeFirstResponder(nil)
             panel.resignKey()
         }
     }
 
-    /// Frame of the black shape at a given size, converted into the terminal
+    /// Frame of the black shape at a given size, converted into the pane
     /// view's coordinate space for its reveal mask. Inset a hair so the mask
     /// edge stays behind the shape's anti-aliased edge even if the two
     /// animation clocks drift within a frame.
-    private func shapeRectInTerminalSpace(for size: CGSize, of terminal: NotchTerminalScreen) -> CGRect {
-        guard let container = terminal.view.superview else { return .zero }
+    private func shapeRectInPaneSpace(for size: CGSize, of pane: NotchPane) -> CGRect {
+        guard let container = pane.view.superview else { return .zero }
         let panelSize = container.bounds.size
         let shape = NSRect(x: (panelSize.width - size.width) / 2,
                            y: panelSize.height - size.height,
                            width: size.width,
                            height: size.height).insetBy(dx: 2, dy: 2)
-        return terminal.view.convert(shape, from: container)
+        return pane.view.convert(shape, from: container)
     }
 
     // MARK: - Panel lifecycle
@@ -345,6 +386,12 @@ final class AppRootController: ObservableObject {
         container.addSubview(pill)
         self.pill = pill
 
+        // In the panel from the start, hidden until its dock tab is selected.
+        let settings = NotchSettingsScreen(controller: self)
+        settings.view.frame = paneFrame(in: frame)
+        container.addSubview(settings.view, positioned: .below, relativeTo: pill)
+        settingsScreen = settings
+
         panel.contentView = container
         panel.acceptsMouseMovedEvents = true
         panel.orderFrontRegardless()
@@ -360,8 +407,9 @@ final class AppRootController: ObservableObject {
         panel.setFrame(frame, display: true)
         pill?.frame = pillFrame(in: frame)
         for terminal in terminals {
-            terminal.view.frame = terminalFrame(in: frame)
+            terminal.view.frame = paneFrame(in: frame)
         }
+        settingsScreen?.view.frame = paneFrame(in: frame)
     }
 
     private func pillFrame(in panelFrame: NSRect) -> NSRect {
@@ -372,10 +420,11 @@ final class AppRootController: ObservableObject {
                       height: size.height)
     }
 
-    private func terminalFrame(in panelFrame: NSRect) -> NSRect {
+    /// Every pane (terminals and settings) shares this frame inside the shape.
+    private func paneFrame(in panelFrame: NSRect) -> NSRect {
         /// inset to match the expanded shape's rounded corners.
         let topInset = collapsedSize.height
-        /// The expanded shape is centered in the (wider) panel; keep the terminal inside it.
+        /// The expanded shape is centered in the (wider) panel; keep the pane inside it.
         let sideMargin = (panelFrame.width - expandedSize.width) / 2
         /// The shape sits at the top of the panel; the band below it belongs to the dock.
         let shapeBottom = panelFrame.height - expandedSize.height
