@@ -33,6 +33,12 @@ final class NotchPanel: NSPanel {
     /// both work.
     var onSizeStep: ((Int) -> Void)?
 
+    /// ⌘Q. Taken here so it reaches the same confirmation from every pane:
+    /// the terminal would otherwise swallow it as Ghostty's own quit
+    /// binding, and the settings pane would hand it to the app menu, which
+    /// quits without asking.
+    var onQuit: (() -> Void)?
+
     /// Receives true when ⌘ goes down and false when it comes up. Also
     /// false whenever the panel stops being key: a release that lands in
     /// another app never reaches this window, so it must not stay stuck on.
@@ -53,10 +59,7 @@ final class NotchPanel: NSPanel {
     /// stripped. Ghostty claims that retry for minus (⌘- is its font
     /// binding), so the size shortcuts must be taken here, ahead of it.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let delta = Self.sizeStep(for: event), let onSizeStep {
-            onSizeStep(delta)
-            return true
-        }
+        if handleOwnShortcut(event) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
@@ -80,18 +83,36 @@ final class NotchPanel: NSPanel {
         // (performKeyEquivalent down the view tree) for the active app, so
         // for ⌘ keys we run it ourselves and stop if a view claims the key.
         //
-        // Size shortcuts go first: Ghostty binds ⌘+ to font size, and on a
-        // US layout ⌘⇧= produces that plus, so the terminal would take it.
-        if let delta = Self.sizeStep(for: event), let onSizeStep {
-            onSizeStep(delta)
-            return
-        }
+        // The panel's own shortcuts go first: Ghostty binds ⌘+ to font size,
+        // and on a US layout ⌘⇧= produces that plus, so the terminal would
+        // take it; it binds ⌘Q too.
+        if handleOwnShortcut(event) { return }
         if event.type == .keyDown,
            event.modifierFlags.contains(.command),
            contentView?.performKeyEquivalent(with: event) == true {
             return
         }
         super.sendEvent(event)
+    }
+
+    /// The panel's own shortcuts, taken ahead of every view: ⌘⇧+ / ⌘⇧- step
+    /// the size and ⌘Q asks about quitting. Whether `event` was one of them.
+    private func handleOwnShortcut(_ event: NSEvent) -> Bool {
+        if let delta = Self.sizeStep(for: event), let onSizeStep {
+            onSizeStep(delta)
+            return true
+        }
+        if Self.isQuit(event), let onQuit {
+            onQuit()
+            return true
+        }
+        return false
+    }
+
+    private static func isQuit(_ event: NSEvent) -> Bool {
+        event.type == .keyDown
+            && event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command]
+            && event.charactersIgnoringModifiers == "q"
     }
 
     private static func sizeStep(for event: NSEvent) -> Int? {

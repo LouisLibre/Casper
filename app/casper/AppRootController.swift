@@ -10,12 +10,15 @@
 //    - right button pressed outside the panel    -> collapse
 //    - Moving the mouse away does NOT collapse.
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
+//    - ⌘Q                                        -> quit (after confirming), from any pane
 //    - ⌘T or the plus in the dock                -> open another terminal tab
-//    - ⌘W with two or more tabs open             -> close the active tab
+//    - ⌘W                                        -> same as the close button in the corner
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab
 //    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around
 //    - ⌘ held                                    -> the dock shows each control's key
 //    - settings button in the dock               -> settings pane in place of the terminal
+//    - close button in the corner                -> close the active tab; quit when it is the
+//                                                   only one or settings is up (after confirming)
 //
 
 import AppKit
@@ -53,12 +56,23 @@ final class AppRootController: ObservableObject {
     }
     private static let sizeStepKey = "expandedSizeStep"
 
-    /// How many terminals the last run had open, so the next launch reopens
-    /// the same number. Written on every open and close.
+    /// What the last run had on screen, so the next launch picks up there:
+    /// how many terminals were open, which one was active, and whether the
+    /// settings pane was up over it. Written on every change.
     private static let terminalCountKey = "terminalCount"
+    private static let activeTerminalIndexKey = "activeTerminalIndex"
+    private static let showingSettingsKey = "showingSettings"
     private var savedTerminalCount: Int {
         get { UserDefaults.standard.integer(forKey: Self.terminalCountKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.terminalCountKey) }
+    }
+    private var savedActiveTerminalIndex: Int {
+        get { UserDefaults.standard.integer(forKey: Self.activeTerminalIndexKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.activeTerminalIndexKey) }
+    }
+    private var savedIsShowingSettings: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.showingSettingsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.showingSettingsKey) }
     }
 
     private var panel: NotchPanel?
@@ -119,7 +133,16 @@ final class AppRootController: ObservableObject {
         let previous = activePane
         activeTerminal = terminal
         isShowingSettings = false
+        saveActivePane()
         switchPane(from: previous)
+    }
+
+    /// Remembers the active tab and whether settings is up for the next launch.
+    private func saveActivePane() {
+        if let active = activeTerminal, let index = terminals.firstIndex(where: { $0 === active }) {
+            savedActiveTerminalIndex = index
+        }
+        savedIsShowingSettings = isShowingSettings
     }
 
     /// Ghostty's goto_tab bindings: ⌘1 to ⌘9 pick a tab by number and ⌘0
@@ -162,9 +185,9 @@ final class AppRootController: ObservableObject {
         let terminal = NotchTerminalScreen()
         terminal.onNewTabRequest = { [weak self] in self?.newTerminal() }
         terminal.onGoToTabRequest = { [weak self] destination in self?.goToTab(destination) }
-        terminal.onCloseRequest = { [weak self, weak terminal] processAlive in
+        terminal.onCloseRequest = { [weak self, weak terminal] in
             guard let self, let terminal else { return }
-            self.closeRequested(by: terminal, processAlive: processAlive)
+            self.closeRequested(by: terminal)
         }
         if let panel, let container = panel.contentView {
             terminal.view.frame = paneFrame(in: panel.frame)
@@ -177,18 +200,36 @@ final class AppRootController: ObservableObject {
         return terminal
     }
 
-    /// The notch always keeps a live terminal. With one tab open, a shell
-    /// that exited gets a fresh one and a close keybind with a process still
-    /// running is ignored. With more tabs the terminal closes, after asking
-    /// when that would end a running process.
-    private func closeRequested(by terminal: NotchTerminalScreen, processAlive: Bool) {
+    /// libghostty wants this terminal gone. A shell that exited on its own
+    /// takes its tab with it, or gets a fresh shell when it was the only
+    /// one: the notch always keeps a live terminal. The close binding (⌘W)
+    /// goes the same way as the corner close button.
+    private func closeRequested(by terminal: NotchTerminalScreen) {
         // Requests arrive deferred, so this one may be for a tab already gone.
         guard terminals.contains(where: { $0 === terminal }) else { return }
-        if terminals.count < 2 {
-            if !processAlive { terminal.respawn() }
+        //The respawn branch is not a close request. processExited is true only when the shell itself ended on its own: the
+        // user typed exit, pressed ⌃D, or the shell crashed. Nobody asked to close a tab or quit the app. libghostty just
+        // reports "my child process is gone" through the same callback it uses for ⌘W.
+        if terminal.processExited {
+            if terminals.count < 2 {
+                terminal.respawn()
+            } else {
+                removeTerminal(terminal)
+            }
             return
         }
-        if processAlive {
+        close(terminal)
+    }
+
+    /// Closes a terminal when others remain to fall back on, asking first if
+    /// a process is still running in it. When it is the only one, asks
+    /// about quitting instead, whatever is running in it.
+    private func close(_ terminal: NotchTerminalScreen) {
+        if terminals.count < 2 {
+            confirmQuit()
+            return
+        }
+        if terminal.needsConfirmClose {
             let close = confirm("Close this terminal?",
                                 detail: "A process is still running in it and will end.",
                                 button: "Close")
@@ -211,6 +252,8 @@ final class AppRootController: ObservableObject {
                 activate(next)
             }
         }
+        // Closing a tab to the left of the active one shifts its index too.
+        saveActivePane()
         terminal.close()
     }
 
@@ -220,6 +263,7 @@ final class AppRootController: ObservableObject {
     func showSettings() {
         let previous = activePane
         isShowingSettings = true
+        saveActivePane()
         // The user may have changed it in System Settings meanwhile.
         opensAtLogin = LoginItem.isEnabled
         switchPane(from: previous)
@@ -239,6 +283,16 @@ final class AppRootController: ObservableObject {
 
     func collapse() {
         setExpanded(false)
+    }
+
+    /// The corner close button: closes the active terminal, or asks about
+    /// quitting from the settings pane.
+    func closeActivePane() {
+        guard !isShowingSettings, let terminal = activeTerminal else {
+            confirmQuit()
+            return
+        }
+        close(terminal)
     }
 
     /// Asks before quitting: the shells and anything running in them die
@@ -262,9 +316,12 @@ final class AppRootController: ObservableObject {
 
     func start() {
         rebuildPanel()
-        // Reopen as many tabs as the last run had, and at least one.
+        // Reopen as many tabs as the last run had, and at least one, and
+        // start on the pane it ended on: its tab, with settings over it if
+        // that was up. Nothing saved yet means the first tab.
         for _ in 0..<max(savedTerminalCount, 1) { addTerminal() }
-        activeTerminal = terminals.first
+        activeTerminal = terminals[min(max(savedActiveTerminalIndex, 0), terminals.count - 1)]
+        isShowingSettings = savedIsShowingSettings
 
         NotificationCenter.default.addObserver(
             self,
@@ -379,6 +436,7 @@ final class AppRootController: ObservableObject {
         let frame = geometry.frame(for: panelSize)
         let panel = NotchPanel(contentRect: frame)
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
+        panel.onQuit = { [weak self] in self?.confirmQuit() }
         panel.onCommandKeyChange = { [weak self] held in
             guard let self, held != self.isCommandHeld else { return }
             self.isCommandHeld = held

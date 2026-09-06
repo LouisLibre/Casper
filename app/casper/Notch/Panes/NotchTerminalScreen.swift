@@ -28,15 +28,20 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
 
     var inputView: NSView? { surfaceView }
 
+    /// Whether closing this terminal would end a running process.
+    var needsConfirmClose: Bool { surfaceView?.needsConfirmClose ?? false }
+    /// Whether the shell itself has ended.
+    var processExited: Bool { surfaceView?.processExited ?? false }
+
     /// Ghostty's new_tab binding (⌘T) fired in this terminal.
     var onNewTabRequest: (() -> Void)?
     /// One of Ghostty's goto_tab bindings (⌘1–⌘9, next and previous tab)
     /// fired in this terminal.
     var onGoToTabRequest: ((TabDestination) -> Void)?
-    /// libghostty wants this terminal gone: the shell exited
-    /// (`processAlive == false`), or the close binding (⌘W) fired. The owner
-    /// decides between closing the tab and starting a fresh shell.
-    var onCloseRequest: ((_ processAlive: Bool) -> Void)?
+    /// libghostty wants this terminal gone: the shell exited, or the close
+    /// binding (⌘W) fired; `processExited` tells the two apart. The owner
+    /// decides between closing the tab, starting a fresh shell and quitting.
+    var onCloseRequest: (() -> Void)?
 
     private var started = false
     /// Whether the terminal is on screen (or on its way there), so a surface
@@ -69,8 +74,8 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
         surface.onGoToTabRequest = { [weak self] destination in
             DispatchQueue.main.async { self?.onGoToTabRequest?(destination) }
         }
-        surface.onCloseRequest = { [weak self] processAlive in
-            DispatchQueue.main.async { self?.onCloseRequest?(processAlive) }
+        surface.onCloseRequest = { [weak self] in
+            DispatchQueue.main.async { self?.onCloseRequest?() }
         }
         view.addSubview(surface)
         surfaceView = surface

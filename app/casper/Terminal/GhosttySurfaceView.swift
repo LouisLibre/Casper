@@ -23,17 +23,30 @@ final class GhosttySurfaceView: NSView {
     /// nil once `close()` ran; every libghostty call checks it first.
     private(set) var surface: ghostty_surface_t?
 
-    /// libghostty wants this surface gone: the child exited
-    /// (`processAlive == false`), or a close keybind fired while a process
-    /// is still running. Called from inside libghostty's own event
-    /// processing, so tear down on a later runloop turn, never inline.
-    var onCloseRequest: ((_ processAlive: Bool) -> Void)?
+    /// libghostty wants this surface gone: the shell exited, or a close
+    /// keybind fired; `processExited` tells the two apart. Called from
+    /// inside libghostty's own event processing, so tear down on a later
+    /// runloop turn, never inline.
+    var onCloseRequest: (() -> Void)?
     /// Ghostty's new_tab binding fired while this surface had focus. Called
     /// from inside libghostty's event processing, like `onCloseRequest`.
     var onNewTabRequest: (() -> Void)?
     /// One of Ghostty's goto_tab bindings (⌘1–⌘9, next and previous tab)
     /// fired while this surface had focus. Called like `onNewTabRequest`.
     var onGoToTabRequest: ((TabDestination) -> Void)?
+
+    /// Whether a process is still running in the shell, by Ghostty's own
+    /// close rules (its `confirm-close-surface` setting).
+    var needsConfirmClose: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_needs_confirm_quit(surface)
+    }
+
+    /// Whether the shell itself has ended (exit, ⌃D).
+    var processExited: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_process_exited(surface)
+    }
 
     private(set) var focused = false
     private var markedText = NSMutableAttributedString()

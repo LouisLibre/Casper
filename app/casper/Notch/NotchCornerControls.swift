@@ -2,8 +2,9 @@
 //  NotchCornerControls.swift
 //
 //  Two small buttons in the top-right corner of the expanded shape: collapse
-//  the notch, and quit the app (after confirming). They sit in the band above
-//  the terminal, so the terminal view never covers them.
+//  the notch, and close: the active tab, or the app (after confirming) when
+//  that tab is the only one or the settings pane is up. They sit in the band
+//  above the terminal, so the terminal view never covers them.
 //
 
 import SwiftUI
@@ -25,11 +26,16 @@ struct NotchCornerControls: View {
             CornerButton(symbol: "chevron.up.circle.fill", label: "Collapse") {
                 controller.collapse()
             }
-            CornerButton(symbol: "x.circle.fill", label: "Quit Casper") {
-                controller.confirmQuit()
+            CornerButton(symbol: "x.circle.fill", label: closeLabel) {
+                controller.closeActivePane()
             }
         }
         .padding(.trailing, Self.padding)
+    }
+
+    /// What the close button does right now, for accessibility.
+    private var closeLabel: String {
+        controller.isShowingSettings || controller.terminals.count < 2 ? "Quit Casper" : "Close Tab"
     }
 
     private struct CornerButton: View {

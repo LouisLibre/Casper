@@ -54,8 +54,8 @@ final class GhosttyRuntime {
             write_clipboard_cb: { userdata, location, content, count, confirm in
                 GhosttyRuntime.writeClipboard(userdata, location: location, content: content, count: count, confirm: confirm)
             },
-            close_surface_cb: { userdata, processAlive in
-                GhosttyRuntime.closeSurface(userdata, processAlive: processAlive)
+            close_surface_cb: { userdata, _ in
+                GhosttyRuntime.closeSurface(userdata)
             })
         guard let app = ghostty_app_new(&runtime, config) else {
             Self.logger.critical("ghostty_app_new failed")
@@ -387,9 +387,9 @@ final class GhosttyRuntime {
         }
     }
 
-    private nonisolated static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {
+    private nonisolated static func closeSurface(_ userdata: UnsafeMutableRawPointer?) {
         MainActor.assumeIsolated {
-            surfaceView(from: userdata)?.onCloseRequest?(processAlive)
+            surfaceView(from: userdata)?.onCloseRequest?()
         }
     }
 
