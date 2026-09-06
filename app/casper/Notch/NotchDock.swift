@@ -75,8 +75,10 @@ struct NotchDock: View {
                     }
                 }
             }
-            // The tab capsule grows and shrinks as terminals come and go. A
-            // size step is not animated: the shape above snaps, so the dock does too.
+            // The tab capsule grows as a terminal opens. Closing one is not
+            // animated: the controller removes it with animations disabled,
+            // and the capsule snaps. A size step is not animated either: the
+            // shape above snaps, so the dock does too.
             .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
         }
         // ⌘[ and ⌘] step through the tabs; their badges straddle the ends of
@@ -202,6 +204,16 @@ struct NotchDock: View {
                 }
             }
             .padding(.horizontal, NotchDock.capsuleEndPadding)
+            // The row is hosted on its own inside the scroller, so the dock's
+            // animation never reaches it: without one of its own a new tab
+            // would appear in a frame, with the plus already past the still
+            // growing capsule's end. Pinned to the leading end: the scroller
+            // already has the final width while the row is still animating
+            // up to it, and centered it would drag every tab along. Closing
+            // a tab skips this: the controller removes it with animations
+            // disabled, and the scroller carries that into the row.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
         }
 
         /// Brings the active tab into the clear when it is scrolled out or
@@ -297,7 +309,7 @@ struct NotchDock: View {
             scroll.hasVerticalScroller = false
             scroll.verticalScrollElasticity = .none
             scroll.automaticallyAdjustsContentInsets = false
-            let hosting = NSHostingView(rootView: row)
+            let hosting = NSHostingView(rootView: HostedRow(row: row, animationsDisabled: context.transaction.disablesAnimations))
             // Sized here from the row's width; the row is one row of fixed slots.
             hosting.sizingOptions = []
             scroll.documentView = hosting
@@ -311,8 +323,8 @@ struct NotchDock: View {
 
         func updateNSView(_ scroll: NSScrollView, context: Context) {
             context.coordinator.onVisibleChange = onVisibleChange
-            let hosting = scroll.documentView as! NSHostingView<Row>
-            hosting.rootView = row
+            let hosting = scroll.documentView as! NSHostingView<HostedRow<Row>>
+            hosting.rootView = HostedRow(row: row, animationsDisabled: context.transaction.disablesAnimations)
             hosting.frame.size = NSSize(width: rowWidth, height: NotchDock.height)
             if let request, request.id != context.coordinator.appliedRequest {
                 context.coordinator.appliedRequest = request.id
@@ -338,6 +350,22 @@ struct NotchDock: View {
             func report(_ clip: NSClipView) {
                 let visible = clip.bounds
                 DispatchQueue.main.async { self.onVisibleChange?(visible) }
+            }
+        }
+    }
+
+    /// The row as the scroller hosts it. The hosting view starts a view tree
+    /// of its own that no transaction from outside reaches: not the dock's
+    /// animations, and not the controller turning animations off for a
+    /// closing tab. So the row takes that one flag from the scroller's
+    /// transaction and turns its own animations off to match.
+    private struct HostedRow<Row: View>: View {
+        let row: Row
+        let animationsDisabled: Bool
+
+        var body: some View {
+            row.transaction { transaction in
+                if animationsDisabled { transaction.disablesAnimations = true }
             }
         }
     }
