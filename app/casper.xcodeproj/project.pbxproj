@@ -7,16 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		4748545400000000000000B5 /* shell-integration in Resources */ = {isa = PBXBuildFile; fileRef = 4748545400000000000000A5 /* shell-integration */; };
-		4748545400000000000000B4 /* themes in Resources */ = {isa = PBXBuildFile; fileRef = 4748545400000000000000A4 /* themes */; };
 		323AED72304390AA00135358 /* GhosttyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 323AED71304390AA00135358 /* GhosttyKit */; };
 		323AED74304390AA00135358 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 323AED73304390AA00135358 /* GhosttyTerminal */; };
+		4748545400000000000000B4 /* themes in Resources */ = {isa = PBXBuildFile; fileRef = 4748545400000000000000A4 /* themes */; };
+		4748545400000000000000B5 /* shell-integration in Resources */ = {isa = PBXBuildFile; fileRef = 4748545400000000000000A5 /* shell-integration */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		4748545400000000000000A5 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "shell-integration"; path = "Vendor/ghostty-shell-integration/shell-integration"; sourceTree = "<group>"; };
-		4748545400000000000000A4 /* themes */ = {isa = PBXFileReference; lastKnownFileType = folder; name = themes; path = Vendor/ghostty-themes/themes; sourceTree = "<group>"; };
 		323AED5E304386C800135358 /* casper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = casper.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4748545400000000000000A4 /* themes */ = {isa = PBXFileReference; lastKnownFileType = folder; name = themes; path = "Vendor/ghostty-themes/themes"; sourceTree = "<group>"; };
+		4748545400000000000000A5 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "shell-integration"; path = "Vendor/ghostty-shell-integration/shell-integration"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */

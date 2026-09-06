@@ -310,6 +310,8 @@ struct NotchDock: View {
 
             @State private var hovering = false
 
+            private var label: String { edge == .leading ? "Earlier Tabs" : "Later Tabs" }
+
             var body: some View {
                 Button(action: action) {
                     Image(systemName: edge == .leading ? "chevron.compact.left" : "chevron.compact.right")
@@ -321,7 +323,8 @@ struct NotchDock: View {
                 }
                 .buttonStyle(.plain)
                 .focusable(false)
-                .accessibilityLabel(edge == .leading ? "Earlier Tabs" : "Later Tabs")
+                .accessibilityLabel(label)
+                .toolTip(label)
                 .onHover { hovering = $0 }
                 .animation(.easeOut(duration: 0.12), value: hovering)
                 .transition(.opacity)
@@ -485,6 +488,7 @@ struct NotchDock: View {
             .buttonStyle(.plain)
             .focusable(false)
             .accessibilityLabel(label)
+            .toolTip(label)
             .onAppear { appeared = true }
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: hovering)

@@ -43,6 +43,10 @@ final class NotchPanel: NSPanel {
     /// corner. Taken here so it works from every pane.
     var onCollapse: (() -> Void)?
 
+    /// ⌘P. Pins the notch open or unpins it, the same as the pin button in
+    /// the corner. Taken here so it works from every pane.
+    var onTogglePin: (() -> Void)?
+
     /// ⌘S. Shows the settings pane, the same as the settings button in the
     /// dock. Taken here so it works from every pane.
     var onShowSettings: (() -> Void)?
@@ -116,9 +120,9 @@ final class NotchPanel: NSPanel {
     }
 
     /// The panel's own shortcuts, taken ahead of every view: ⌘⇧+ / ⌘⇧- step
-    /// the size, ⌘Q asks about quitting, ⌘M collapses and ⌘S shows
-    /// settings; the tab shortcuts only when the pane on screen cannot take
-    /// them. Whether `event` was one of them.
+    /// the size, ⌘Q asks about quitting, ⌘M collapses, ⌘P pins and ⌘S
+    /// shows settings; the tab shortcuts only when the pane on screen
+    /// cannot take them. Whether `event` was one of them.
     private func handleOwnShortcut(_ event: NSEvent) -> Bool {
         if let delta = Self.sizeStep(for: event), let onSizeStep {
             onSizeStep(delta)
@@ -130,6 +134,10 @@ final class NotchPanel: NSPanel {
         }
         if Self.isCommandKey(event, "m"), let onCollapse {
             onCollapse()
+            return true
+        }
+        if Self.isCommandKey(event, "p"), let onTogglePin {
+            onTogglePin()
             return true
         }
         if Self.isCommandKey(event, "s"), let onShowSettings {

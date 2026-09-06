@@ -8,10 +8,13 @@
 //    - left button released outside the panel    -> collapse. The press alone
 //      does not, so a drag that starts in another app can end on the terminal.
 //    - right button pressed outside the panel    -> collapse
+//    - pin button in the corner                  -> clicks outside no longer collapse;
+//                                                   the collapse button and ⌘M still do
 //    - Moving the mouse away does NOT collapse.
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - ⌘Q                                        -> quit (after confirming), from any pane
 //    - ⌘M                                        -> same as the collapse button in the corner
+//    - ⌘P                                        -> same as the pin button in the corner
 //    - ⌘T or the plus in the dock                -> open another terminal tab, from settings too
 //    - ⌘W                                        -> same as the close button in the corner
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab, from settings too
@@ -29,6 +32,9 @@ import SwiftUI
 @MainActor
 final class AppRootController: ObservableObject {
     @Published private(set) var isExpanded = false
+    /// While pinned, clicks outside the panel leave it expanded. The corner
+    /// button and ⌘M still collapse it. Off at every launch.
+    @Published private(set) var isPinned = false
     /// Every open terminal, in dock order. Never empty once `start()` ran.
     @Published private(set) var terminals: [NotchTerminalScreen] = []
     /// The terminal on screen while expanded (unless settings is), highlighted in the dock.
@@ -315,6 +321,11 @@ final class AppRootController: ObservableObject {
         setExpanded(false)
     }
 
+    func togglePinned() {
+        isPinned.toggle()
+        focusActivePane()
+    }
+
     /// The corner close button: closes the active terminal, or asks about
     /// quitting from the settings pane.
     func closeActivePane() {
@@ -365,12 +376,13 @@ final class AppRootController: ObservableObject {
         // monitors are reliable without Accessibility permission. A right
         // press collapses at once; a left press may be the start of a drag
         // headed for the terminal, so that decision waits for the release.
+        // Neither does anything while pinned.
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             let isRightPress = event.type == .rightMouseDown
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, !self.isPinned else { return }
                 if isRightPress {
                     self.setExpanded(false)
                 } else {
@@ -468,6 +480,7 @@ final class AppRootController: ObservableObject {
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
         panel.onQuit = { [weak self] in self?.confirmQuit() }
         panel.onCollapse = { [weak self] in self?.collapse() }
+        panel.onTogglePin = { [weak self] in self?.togglePinned() }
         panel.onShowSettings = { [weak self] in self?.showSettings() }
         // In a terminal these keys reach Ghostty and come back through its
         // bindings; only the settings pane needs the panel to take them.

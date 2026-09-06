@@ -1,17 +1,20 @@
 //
 //  NotchCornerControls.swift
 //
-//  Two small buttons in the top-right corner of the expanded shape: collapse
-//  the notch, and close: the active tab, or the app (after confirming) when
-//  that tab is the only one or the settings pane is up. They sit in the band
-//  above the terminal. After ⌘ is held briefly each wears a badge under its icon
-//  with the key that does the same: ⌘M for collapse, ⌘W or ⌘Q for close,
+//  Three small buttons in the top-right corner of the expanded shape: pin
+//  the notch open so clicks outside stop collapsing it, collapse the notch,
+//  and close: the active tab, or the app (after confirming) when that tab is
+//  the only one or the settings pane is up. They sit in the band above the
+//  terminal. After ⌘ is held briefly each wears a badge with the key that
+//  does the same: ⌘P for pin, ⌘M for collapse, ⌘W or ⌘Q for close,
 //  whichever the button would do right now.
 //
-//  The band is not tall enough to hold a badge under an icon, so the badges
-//  hang out under it, over the top of the pane. The panes sit above the
-//  panel's SwiftUI body, so the controls live in a host of their own above
-//  them (NotchCornerControlsHost), sized to this corner alone.
+//  The band is not tall enough to hold a badge under an icon, so the
+//  collapse and close badges hang out under it, over the top of the pane.
+//  The pin badge sits beside its icon instead, on the left, where the band
+//  has room. The panes sit above the panel's SwiftUI body, so the controls
+//  live in a host of their own above them (NotchCornerControlsHost), sized
+//  to this corner alone.
 //
 
 import AppKit
@@ -37,27 +40,33 @@ struct NotchCornerControls: View {
     /// rectangle placed at the top-right corner of the expanded notch. It
     /// sits on top of the terminal so the badges can be seen. macOS gives
     /// a click to the topmost view whose rectangle contains it, and this
-    /// rectangle is on top, so it takes every click inside it, even where
-    /// nothing is drawn. So the rectangle has to stay small. If it were
-    /// much wider, at the smallest notch size it would reach the pill (the
-    /// clickable strip around the physical notch) and the pill would stop
-    /// reacting to clicks.
+    /// rectangle is on top, so it would take every click inside it, even
+    /// where nothing is drawn. So the host only claims clicks in the part
+    /// of the band that holds the icons (`buttonsWidth`), and that part
+    /// has to stay small: much wider, at the smallest notch size it would
+    /// reach the pill (the clickable strip around the physical notch) and
+    /// the pill would stop reacting to clicks.
     ///
     /// The value is not computed because two of the sizes involved come
     /// from font rendering, not from constants in this file. They were
     /// measured from a test render: an icon is 19 wide and a badge is 30.
-    /// From the right edge: 16 of padding, the close icon (19), the gap
-    /// between the icons (8), and the collapse icon (19) add up to 62.
-    /// The collapse badge is wider than its icon and sticks out past it
-    /// by (30 - 19) / 2, and it is also nudged 4 to the left, which brings
-    /// the total to 71.5. Rounded up to 80 to leave some room.
-    static let width: CGFloat = 80
+    /// From the right edge: 18 of padding, the close icon (19), a gap (8),
+    /// the collapse icon (19), a gap (8), and the pin icon (19) add up to
+    /// 91. The collapse badge is wider than its icon and nudged left, but
+    /// it stays over the pin icon, so it adds nothing. The pin badge sits
+    /// beside its icon, so past the icons come the gap to it (6) and the
+    /// badge (30), for 127. Rounded up to 136 to leave some room.
+    static let width: CGFloat = 136
+    /// The right part of the band that holds the three icons, the only
+    /// part of the rectangle that takes clicks: 91 (see `width`), rounded
+    /// up to leave some room.
+    static let buttonsWidth: CGFloat = 100
     
     /// How far the rectangle that holds these controls extends below the
     /// band.
     ///
     /// The band is the dark strip along the top of the expanded notch. It
-    /// is as tall as the collapsed notch, and the two icons sit centered
+    /// is as tall as the collapsed notch, and the icons sit centered
     /// in it. The terminal starts right under it. A badge does not fit in
     /// the band under an icon, so it hangs out below the band, over the
     /// top of the terminal, and the rectangle must reach down far enough
@@ -71,7 +80,7 @@ struct NotchCornerControls: View {
     /// costs nothing: clicks in the part below the band are passed on to
     /// the terminal (see `NotchCornerControlsHost`).
     static let hintReserve: CGFloat = 24
-    /// Gap between an icon and the badge under it.
+    /// Gap between an icon and its badge, under or beside it.
     private static let hintGap: CGFloat = 6
     /// The badges are wider than the icons and would touch if each sat
     /// centered under its icon, so each is nudged this far outward: the
@@ -80,6 +89,12 @@ struct NotchCornerControls: View {
 
     var body: some View {
         HStack(spacing: Self.spacing) {
+            CornerButton(symbol: controller.isPinned ? "pin.circle.fill" : "pin.circle",
+                         label: controller.isPinned ? "Unpin to set auto-collapse on" : "Pin to set auto-collapse off",
+                         keyHint: showsKeyHints ? "P" : nil, hintShift: 0,
+                         hintPlacement: .leading, isLit: controller.isPinned) {
+                controller.togglePinned()
+            }
             CornerButton(symbol: "chevron.up.circle.fill", label: "Collapse",
                          keyHint: showsKeyHints ? "M" : nil, hintShift: -Self.hintShift) {
                 controller.collapse()
@@ -100,8 +115,9 @@ struct NotchCornerControls: View {
         .animation(NotchSpring.swiftUI(expanding: controller.isExpanded), value: controller.isExpanded)
     }
 
-    /// ⌘M and ⌘Q are the panel's own shortcuts and work from every pane, so
-    /// unlike the dock's badges these show from the settings pane too.
+    /// ⌘P, ⌘M and ⌘Q are the panel's own shortcuts and work from every
+    /// pane, so unlike the dock's badges these show from the settings pane
+    /// too.
     private var showsKeyHints: Bool { controller.showsShortcutHints }
 
     /// Whether the close button quits rather than closes a tab: from the
@@ -123,35 +139,53 @@ struct NotchCornerControls: View {
         let keyHint: String?
         /// How far the badge sits off center under the icon, positive to the right.
         let hintShift: CGFloat
+        /// Where the badge goes: under the icon, or beside it on the left.
+        var hintPlacement: HintPlacement = .below
+        /// Keeps the icon at full opacity whether hovered or not, to show a
+        /// state that is switched on. Off for buttons that only do something.
+        var isLit = false
         let action: () -> Void
 
         @State private var hovering = false
+
+        enum HintPlacement {
+            case below
+            case leading
+        }
+
+        private var opacity: Double {
+            if isLit || hovering { return NotchCornerControls.hoverOpacity }
+            return NotchCornerControls.restingOpacity
+        }
 
         var body: some View {
             Button(action: action) {
                 Image(systemName: symbol)
                     .font(.system(size: NotchCornerControls.symbolSize, weight: NotchCornerControls.symbolWeight))
-                    .foregroundStyle(.white.opacity(hovering ? NotchCornerControls.hoverOpacity
-                                                             : NotchCornerControls.restingOpacity))
+                    .foregroundStyle(.white.opacity(opacity))
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .focusable(false)
             .accessibilityLabel(label)
+            .toolTip(label)
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: hovering)
-            // The badge hangs under the icon. As an overlay it takes no part
-            // in layout, so the icons never shift when it comes and goes;
-            // nor in clicks, so what is under it keeps them. The guide that
-            // moves it below sits on the stack, not the badge: set inside
-            // the `if` it would not reach the overlay.
-            .overlay(alignment: .bottom) {
+            // The badge hangs under the icon, or sits beside it. As an
+            // overlay it takes no part in layout, so the icons never shift
+            // when it comes and goes; nor in clicks, so what is under it
+            // keeps them. The guides that move it out from under the icon
+            // sit on the stack, not the badge: set inside the `if` they
+            // would not reach the overlay. Only the guide for the placement
+            // in use is consulted.
+            .overlay(alignment: hintPlacement == .below ? .bottom : .leading) {
                 ZStack {
                     if let keyHint {
                         KeyBadge(key: keyHint).fixedSize()
                     }
                 }
                 .alignmentGuide(.bottom) { $0[.top] - NotchCornerControls.hintGap }
+                .alignmentGuide(.leading) { $0[.trailing] + NotchCornerControls.hintGap }
                 .offset(x: hintShift)
                 .allowsHitTesting(false)
             }
@@ -161,10 +195,11 @@ struct NotchCornerControls: View {
 }
 
 /// Hosts the corner controls above the panes, in the top-right corner of
-/// the expanded shape. Only the band at its top takes clicks, where the
-/// buttons are; the rest of the view is the room for the badges over the
-/// pane, and clicks there fall through to it. Needed because a hosting
-/// view otherwise claims every click in its frame, badge or not.
+/// the expanded shape. Only the right part of the band at its top takes
+/// clicks, where the buttons are; the rest of the view is the room for
+/// the badges, beside the buttons and under them over the pane, and
+/// clicks there fall through to whatever is below. Needed because a
+/// hosting view otherwise claims every click in its frame, badge or not.
 final class NotchCornerControlsHost: NSHostingView<AnyView> {
     /// Height of the band at the top of the view.
     var bandHeight: CGFloat = 0
@@ -172,7 +207,9 @@ final class NotchCornerControlsHost: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
         let distanceFromTop = isFlipped ? local.y : bounds.height - local.y
-        guard distanceFromTop <= bandHeight else { return nil }
+        let distanceFromRight = bounds.width - local.x
+        guard distanceFromTop <= bandHeight,
+              distanceFromRight <= NotchCornerControls.buttonsWidth else { return nil }
         return super.hitTest(point)
     }
 }
