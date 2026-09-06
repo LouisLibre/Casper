@@ -31,6 +31,9 @@ final class GhosttySurfaceView: NSView {
     /// Ghostty's new_tab binding fired while this surface had focus. Called
     /// from inside libghostty's event processing, like `onCloseRequest`.
     var onNewTabRequest: (() -> Void)?
+    /// One of Ghostty's goto_tab bindings (⌘1–⌘9, next and previous tab)
+    /// fired while this surface had focus. Called like `onNewTabRequest`.
+    var onGoToTabRequest: ((TabDestination) -> Void)?
 
     private(set) var focused = false
     private var markedText = NSMutableAttributedString()

@@ -30,6 +30,9 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
 
     /// Ghostty's new_tab binding (⌘T) fired in this terminal.
     var onNewTabRequest: (() -> Void)?
+    /// One of Ghostty's goto_tab bindings (⌘1–⌘9, next and previous tab)
+    /// fired in this terminal.
+    var onGoToTabRequest: ((TabDestination) -> Void)?
     /// libghostty wants this terminal gone: the shell exited
     /// (`processAlive == false`), or the close binding (⌘W) fired. The owner
     /// decides between closing the tab and starting a fresh shell.
@@ -58,10 +61,13 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
         let surface = GhosttySurfaceView(frame: view.bounds, app: app)
         guard surface.surface != nil else { return }
         surface.autoresizingMask = [.width, .height]
-        // Both requests arrive from inside libghostty's own event processing,
+        // These requests arrive from inside libghostty's own event processing,
         // so they are passed on from a later runloop turn, never inline.
         surface.onNewTabRequest = { [weak self] in
             DispatchQueue.main.async { self?.onNewTabRequest?() }
+        }
+        surface.onGoToTabRequest = { [weak self] destination in
+            DispatchQueue.main.async { self?.onGoToTabRequest?(destination) }
         }
         surface.onCloseRequest = { [weak self] processAlive in
             DispatchQueue.main.async { self?.onCloseRequest?(processAlive) }

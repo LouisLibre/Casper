@@ -33,6 +33,11 @@ final class NotchPanel: NSPanel {
     /// both work.
     var onSizeStep: ((Int) -> Void)?
 
+    /// Receives true when ⌘ goes down and false when it comes up. Also
+    /// false whenever the panel stops being key: a release that lands in
+    /// another app never reaches this window, so it must not stay stuck on.
+    var onCommandKeyChange: ((Bool) -> Void)?
+
     // Borderless windows refuse key status unless we opt in — the terminal needs keyboard input.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -55,7 +60,20 @@ final class NotchPanel: NSPanel {
         return super.performKeyEquivalent(with: event)
     }
 
+    override func becomeKey() {
+        super.becomeKey()
+        onCommandKeyChange?(NSEvent.modifierFlags.contains(.command))
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        onCommandKeyChange?(false)
+    }
+
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .flagsChanged {
+            onCommandKeyChange?(event.modifierFlags.contains(.command))
+        }
         // As a .nonactivatingPanel this window takes key status without
         // making the app active, so the user types here while another app
         // owns the menu bar. AppKit only runs its ⌘-shortcut pass

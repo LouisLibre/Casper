@@ -9,6 +9,9 @@
 //  solid slot in the capsule's corner holding a chevron that points that way;
 //  a click on the slot scrolls the row a step further that way. Stepping the
 //  shape with ⌘⇧+ / ⌘⇧- widens or narrows the room for tabs along with it.
+//  While ⌘ is held the icons give way to the keys that go with it: the first
+//  nine tabs show their number (⌘1 to ⌘9), the tenth a 0 (⌘0) and the plus
+//  a T (⌘T).
 //
 //  The groups are Liquid Glass on macOS 26; older systems get the body's
 //  frosted backdrop with a hand-drawn rim. The body itself stays on the
@@ -124,6 +127,20 @@ struct NotchDock: View {
         private var showsLeadingChevron: Bool { scrollable && visible.minX > Self.slack }
         private var showsTrailingChevron: Bool { scrollable && visible.maxX < rowWidth - Self.slack }
 
+        /// The shortcuts are Ghostty bindings, so they only work while a
+        /// terminal has the keyboard, not while the settings pane does.
+        private var showsKeyHints: Bool { controller.isCommandHeld && !controller.isShowingSettings }
+
+        /// The digit that, with ⌘, jumps to the tab at `number` (from one):
+        /// 1 to 9 for the first nine, 0 for the tenth, none past that.
+        private static func keyHint(forTab number: Int) -> String? {
+            switch number {
+            case 1...9: return "\(number)"
+            case 10: return "0"
+            default: return nil
+            }
+        }
+
         var body: some View {
             TabScroller(row: row, rowWidth: rowWidth, request: request) { visible = $0 }
                 .frame(width: width, height: NotchDock.height)
@@ -146,10 +163,13 @@ struct NotchDock: View {
 
         private var row: some View {
             HStack(spacing: 0) {
-                // ⌘T adds one, ⌘W closes the active one.
+                // ⌘T adds one, ⌘W closes the active one, ⌘1 to ⌘9 and ⌘0 pick
+                // one of the first ten by number; the rest have no key to show.
                 ForEach(Array(controller.terminals.enumerated()), id: \.element.id) { index, terminal in
                     let isActive = !controller.isShowingSettings && terminal === controller.activeTerminal
-                    DockButton(symbol: "apple.terminal", label: "Terminal \(index + 1)",
+                    let number = index + 1
+                    DockButton(symbol: "apple.terminal", label: "Terminal \(number)",
+                               keyHint: showsKeyHints ? Self.keyHint(forTab: number) : nil,
                                isOn: isActive,
                                highlighted: isActive) {
                         controller.activate(terminal)
@@ -157,6 +177,7 @@ struct NotchDock: View {
                 }
                 // Same as ⌘T. Last in the row, so it scrolls with the tabs.
                 DockButton(symbol: "plus", label: "New Terminal",
+                           keyHint: showsKeyHints ? "T" : nil,
                            isOn: false,
                            highlighted: false) {
                     controller.newTerminal()
@@ -352,6 +373,10 @@ struct NotchDock: View {
     private struct DockButton: View {
         let symbol: String
         let label: String
+        /// Drawn in place of the symbol: the key that, with ⌘, does what a
+        /// click does. Set only while ⌘ is held, and never for a control
+        /// without a shortcut.
+        var keyHint: String? = nil
         /// Drawn white; otherwise mid gray.
         let isOn: Bool
         /// Draws the pill behind the icon. Tabs only.
@@ -363,22 +388,30 @@ struct NotchDock: View {
 
         var body: some View {
             Button(action: action) {
-                Image(systemName: symbol)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(isOn ? NotchDock.iconOn : NotchDock.iconOff)
-                    .frame(width: NotchDock.slot, height: NotchDock.slot)
-                    .background {
-                        Capsule()
-                            .fill(.white.opacity(highlighted ? 0.18 : hovering ? 0.07 : 0))
-                            .frame(width: highlightSize.width, height: highlightSize.height)
+                ZStack {
+                    if let keyHint {
+                        Text(keyHint)
+                            .font(.system(size: 17, weight: .medium))
+                    } else {
+                        Image(systemName: symbol)
+                            .font(.system(size: 17, weight: .medium))
                     }
-                    .contentShape(Rectangle())
+                }
+                .foregroundStyle(isOn ? NotchDock.iconOn : NotchDock.iconOff)
+                .frame(width: NotchDock.slot, height: NotchDock.slot)
+                .background {
+                    Capsule()
+                        .fill(.white.opacity(highlighted ? 0.18 : hovering ? 0.07 : 0))
+                        .frame(width: highlightSize.width, height: highlightSize.height)
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .focusable(false)
             .accessibilityLabel(label)
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: hovering)
+            .animation(.easeOut(duration: 0.12), value: keyHint)
             .animation(.easeOut(duration: 0.15), value: isOn)
             .animation(.easeOut(duration: 0.15), value: highlighted)
         }

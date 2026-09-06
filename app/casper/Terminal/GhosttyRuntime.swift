@@ -306,6 +306,12 @@ final class GhosttyRuntime {
                 request()
                 return true
 
+            case GHOSTTY_ACTION_GOTO_TAB:
+                guard let request = surfaceView(for: target)?.onGoToTabRequest,
+                      let destination = TabDestination(action.action.goto_tab) else { return false }
+                request(destination)
+                return true
+
             case GHOSTTY_ACTION_RING_BELL:
                 NSSound.beep()
                 return true
@@ -397,5 +403,24 @@ final class GhosttyRuntime {
     private static func surfaceView(for target: ghostty_target_s) -> GhosttySurfaceView? {
         guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface else { return nil }
         return surfaceView(from: ghostty_surface_userdata(surface))
+    }
+}
+
+/// Where one of Ghostty's goto_tab bindings points. Tabs are numbered from one.
+enum TabDestination: Equatable {
+    case number(Int)
+    case previous
+    case next
+    case last
+
+    init?(_ value: ghostty_action_goto_tab_e) {
+        switch value {
+        case GHOSTTY_GOTO_TAB_PREVIOUS: self = .previous
+        case GHOSTTY_GOTO_TAB_NEXT: self = .next
+        case GHOSTTY_GOTO_TAB_LAST: self = .last
+        default:
+            guard value.rawValue > 0 else { return nil }
+            self = .number(Int(value.rawValue))
+        }
     }
 }

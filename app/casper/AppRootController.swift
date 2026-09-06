@@ -12,6 +12,8 @@
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - ⌘T or the plus in the dock                -> open another terminal tab
 //    - ⌘W with two or more tabs open             -> close the active tab
+//    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab
+//    - ⌘ held                                    -> the dock shows each control's key
 //    - settings button in the dock               -> settings pane in place of the terminal
 //
 
@@ -28,6 +30,9 @@ final class AppRootController: ObservableObject {
     @Published private(set) var activeTerminal: NotchTerminalScreen?
     /// The settings pane is on screen in place of the active terminal.
     @Published private(set) var isShowingSettings = false
+    /// ⌘ is down while the panel has the keyboard. The dock swaps its icons
+    /// for the keys that go with ⌘ meanwhile.
+    @Published private(set) var isCommandHeld = false
     /// Whether the shape shows the frosted backdrop (on) or flat black (off).
     @Published private(set) var isTerminalTransparent = true
     /// Whether Casper is registered to start at login, mirrored from macOS.
@@ -116,6 +121,23 @@ final class AppRootController: ObservableObject {
         switchPane(from: previous)
     }
 
+    /// Ghostty's goto_tab bindings: ⌘1 to ⌘9 pick a tab by number and ⌘0
+    /// the tenth, next and previous step along the row and wrap at its
+    /// ends. A number past the last tab does nothing.
+    func goToTab(_ destination: TabDestination) {
+        guard let active = activeTerminal,
+              let current = terminals.firstIndex(where: { $0 === active }) else { return }
+        let index: Int
+        switch destination {
+        case .number(let number): index = number - 1
+        case .previous: index = (current - 1 + terminals.count) % terminals.count
+        case .next: index = (current + 1) % terminals.count
+        case .last: index = terminals.count - 1
+        }
+        guard terminals.indices.contains(index) else { return }
+        activate(terminals[index])
+    }
+
     /// Swaps the pane on screen while expanded. While collapsed every pane
     /// is hidden anyway and the next expand reveals the active one.
     private func switchPane(from previous: NotchPane?) {
@@ -138,6 +160,7 @@ final class AppRootController: ObservableObject {
     private func addTerminal() -> NotchTerminalScreen {
         let terminal = NotchTerminalScreen()
         terminal.onNewTabRequest = { [weak self] in self?.newTerminal() }
+        terminal.onGoToTabRequest = { [weak self] destination in self?.goToTab(destination) }
         terminal.onCloseRequest = { [weak self, weak terminal] processAlive in
             guard let self, let terminal else { return }
             self.closeRequested(by: terminal, processAlive: processAlive)
@@ -355,6 +378,10 @@ final class AppRootController: ObservableObject {
         let frame = geometry.frame(for: panelSize)
         let panel = NotchPanel(contentRect: frame)
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
+        panel.onCommandKeyChange = { [weak self] held in
+            guard let self, held != self.isCommandHeld else { return }
+            self.isCommandHeld = held
+        }
         let panelBody = NotchPanelBody().environmentObject(self)
 
         let container = NSView(frame: NSRect(origin: .zero, size: frame.size))
