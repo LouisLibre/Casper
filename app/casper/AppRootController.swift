@@ -240,13 +240,13 @@ final class AppRootController: ObservableObject {
 
     private func removeTerminal(_ terminal: NotchTerminalScreen) {
         guard let index = terminals.firstIndex(where: { $0 === terminal }) else { return }
-        // The dock animates a tab opening, never one closing: the tab goes,
-        // the tabs after it and the capsule snap to their new places, and the
-        // next tab's highlight is just there. Animations off for the whole
-        // change, so the dock's own animation modifiers stay out of it.
-        var snap = Transaction()
-        snap.disablesAnimations = true
-        withTransaction(snap) {
+        // The dock's capsule shrinks with the same animation it grows with,
+        // but the tabs in it snap: the closed one goes, the ones after it
+        // move up, the next tab's highlight is just there. The dock's row
+        // reads the mark off the transaction.
+        var transaction = Transaction()
+        transaction.closesTab = true
+        withTransaction(transaction) {
             terminals.remove(at: index)
             savedTerminalCount = terminals.count
             if terminal === activeTerminal {
