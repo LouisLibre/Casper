@@ -25,19 +25,6 @@
 
 import SwiftUI
 
-/// Marks the transaction that removes a tab. The dock's capsule shrinks with
-/// the same animation it grows with, but the tabs in it snap: see NotchDock.HostedRow.
-extension Transaction {
-    var closesTab: Bool {
-        get { self[ClosesTabKey.self] }
-        set { self[ClosesTabKey.self] = newValue }
-    }
-}
-
-private struct ClosesTabKey: TransactionKey {
-    static let defaultValue = false
-}
-
 struct NotchDock: View {
     @EnvironmentObject private var controller: AppRootController
 
@@ -57,6 +44,10 @@ struct NotchDock: View {
     private static let controlHighlightSize = CGSize(width: 40, height: 40)
     private static let groupSpacing: CGFloat = 12
     private static let capsuleEndPadding: CGFloat = 6
+    /// A tab opening or closing: the capsule grows or shrinks, the tabs
+    /// after it slide, and the row view (see TabScroller) follows.
+    private static let tabChange = Animation.easeOut(duration: tabChangeDuration)
+    private static let tabChangeDuration: TimeInterval = 0.15
 
     /// Dark fill under clear glass. A black *tint* on regular glass turns the
     /// lens edge into a thick dark band and leaves a lighter disc inside it;
@@ -93,7 +84,7 @@ struct NotchDock: View {
             }
             // The tab capsule grows and shrinks as terminals come and go. A
             // size step is not animated: the shape above snaps, so the dock does too.
-            .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
+            .animation(Self.tabChange, value: controller.terminals.count)
         }
         // ⌘[ and ⌘] step through the tabs; their badges straddle the ends of
         // the tab capsule. Laid over the whole glass group, not inside it:
@@ -106,7 +97,7 @@ struct NotchDock: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: showsTerminalOnlyKeyHints)
-        .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
+        .animation(Self.tabChange, value: controller.terminals.count)
         .environment(\.colorScheme, .dark)
     }
 
@@ -181,7 +172,7 @@ struct NotchDock: View {
         }
 
         var body: some View {
-            TabScroller(row: row, rowWidth: rowWidth, request: request) { visible = $0 }
+            TabScroller(row: row, rowWidth: rowWidth, stripWidth: width, request: request) { visible = $0 }
                 .frame(width: width, height: NotchDock.height)
                 .overlay(alignment: .leading) {
                     if showsLeadingChevron {
@@ -213,6 +204,12 @@ struct NotchDock: View {
                                highlighted: isActive) {
                         controller.activate(terminal)
                     }
+                    // A new tab fades in where the capsule has grown. A closed
+                    // one shrinks away in its slot while the tabs after it
+                    // slide up over it, so when the next tab takes the
+                    // highlight it is seen arriving, not just lit in place.
+                    .transition(.asymmetric(insertion: .opacity,
+                                            removal: .scale(scale: 0.5).combined(with: .opacity)))
                 }
                 // Same as ⌘T. Last in the row, so it scrolls with the tabs.
                 DockButton(symbol: "plus", label: "New Terminal",
@@ -226,13 +223,12 @@ struct NotchDock: View {
             // The row is hosted on its own inside the scroller, so the dock's
             // animation never reaches it: without one of its own a new tab
             // would appear in a frame, with the plus already past the still
-            // growing capsule's end. Pinned to the leading end: the scroller
-            // already has the final width while the row is still animating
-            // up to it, and centered it would drag every tab along. A closing
-            // tab skips this: the row snaps while the capsule shrinks around
-            // it, see HostedRow.
+            // growing capsule's end. Pinned to the leading end: the row view
+            // is wider than the row while the tabs are sliding, on open and on
+            // close alike (see TabScroller), and centered in it every tab
+            // would be dragged along.
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
+            .animation(NotchDock.tabChange, value: controller.terminals.count)
         }
 
         /// Brings the active tab into the clear when it is scrolled out or
@@ -313,6 +309,8 @@ struct NotchDock: View {
     private struct TabScroller<Row: View>: NSViewRepresentable {
         let row: Row
         let rowWidth: CGFloat
+        /// Width of the strip once the capsule has finished growing or shrinking.
+        let stripWidth: CGFloat
         /// Applied once per request id.
         let request: ScrollRequest?
         /// The stretch of the row on screen, in row coordinates.
@@ -328,7 +326,7 @@ struct NotchDock: View {
             scroll.hasVerticalScroller = false
             scroll.verticalScrollElasticity = .none
             scroll.automaticallyAdjustsContentInsets = false
-            let hosting = NSHostingView(rootView: HostedRow(row: row, closesTab: context.transaction.closesTab))
+            let hosting = NSHostingView(rootView: row)
             // Sized here from the row's width; the row is one row of fixed slots.
             hosting.sizingOptions = []
             scroll.documentView = hosting
@@ -342,9 +340,9 @@ struct NotchDock: View {
 
         func updateNSView(_ scroll: NSScrollView, context: Context) {
             context.coordinator.onVisibleChange = onVisibleChange
-            let hosting = scroll.documentView as! NSHostingView<HostedRow<Row>>
-            hosting.rootView = HostedRow(row: row, closesTab: context.transaction.closesTab)
-            hosting.frame.size = NSSize(width: rowWidth, height: NotchDock.height)
+            let hosting = scroll.documentView as! NSHostingView<Row>
+            hosting.rootView = row
+            resizeRow(hosting, in: scroll, coordinator: context.coordinator)
             if let request, request.id != context.coordinator.appliedRequest {
                 context.coordinator.appliedRequest = request.id
                 NSAnimationContext.runAnimationGroup { animation in
@@ -356,9 +354,40 @@ struct NotchDock: View {
             context.coordinator.report(scroll.contentView)
         }
 
+        /// Sizes the row view to the row. It grows at once, so a new tab has
+        /// its place from the first frame. It shrinks only after the tabs
+        /// have slid up past a closed one: the closing tab and the sliding
+        /// ones are still drawn out at the old width until then, and a row
+        /// scrolled past its new end would be yanked back the moment the
+        /// view got too short for the scroll. That row rolls back instead,
+        /// in step with the tabs.
+        private func resizeRow(_ hosting: NSView, in scroll: NSScrollView, coordinator: Coordinator) {
+            guard rowWidth != coordinator.rowWidth else { return }
+            coordinator.rowWidth = rowWidth
+            if rowWidth >= hosting.frame.width {
+                hosting.frame.size = NSSize(width: rowWidth, height: NotchDock.height)
+                return
+            }
+            let end = max(0, rowWidth - stripWidth)
+            if scroll.contentView.bounds.minX > end {
+                NSAnimationContext.runAnimationGroup { animation in
+                    animation.duration = NotchDock.tabChangeDuration
+                    animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    scroll.contentView.animator().setBoundsOrigin(NSPoint(x: end, y: 0))
+                }
+            }
+            // Takes the latest width: a tab opened meanwhile has already grown the view.
+            DispatchQueue.main.asyncAfter(deadline: .now() + NotchDock.tabChangeDuration) { [weak hosting, weak coordinator] in
+                guard let hosting, let coordinator else { return }
+                hosting.frame.size = NSSize(width: coordinator.rowWidth, height: NotchDock.height)
+            }
+        }
+
         final class Coordinator: NSObject {
             var onVisibleChange: ((CGRect) -> Void)?
             var appliedRequest: UUID?
+            /// The row width the view was last asked to take.
+            var rowWidth: CGFloat = 0
 
             @objc func boundsChanged(_ notification: Notification) {
                 guard let clip = notification.object as? NSClipView else { return }
@@ -369,21 +398,6 @@ struct NotchDock: View {
             func report(_ clip: NSClipView) {
                 let visible = clip.bounds
                 DispatchQueue.main.async { self.onVisibleChange?(visible) }
-            }
-        }
-    }
-
-    /// The row as the scroller hosts it. The hosting view starts a view tree
-    /// of its own that no transaction from outside reaches, so the row takes
-    /// the one thing it needs from the scroller's transaction: a closing
-    /// tab. The capsule around the row animates its shrink; the row snaps.
-    private struct HostedRow<Row: View>: View {
-        let row: Row
-        let closesTab: Bool
-
-        var body: some View {
-            row.transaction { transaction in
-                if closesTab { transaction.disablesAnimations = true }
             }
         }
     }

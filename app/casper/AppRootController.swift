@@ -242,24 +242,18 @@ final class AppRootController: ObservableObject {
 
     private func removeTerminal(_ terminal: NotchTerminalScreen) {
         guard let index = terminals.firstIndex(where: { $0 === terminal }) else { return }
-        // The dock's capsule shrinks with the same animation it grows with,
-        // but the tabs in it snap: the closed one goes, the ones after it
-        // move up, the next tab's highlight is just there. The dock's row
-        // reads the mark off the transaction.
-        var transaction = Transaction()
-        transaction.closesTab = true
-        withTransaction(transaction) {
-            terminals.remove(at: index)
-            savedTerminalCount = terminals.count
-            if terminal === activeTerminal {
-                // The tab to its right takes over, or the new last tab when it was rightmost.
-                let next = terminals[min(index, terminals.count - 1)]
-                if isShowingSettings {
-                    // The shell exited behind the settings pane; stay on it.
-                    activeTerminal = next
-                } else {
-                    activate(next)
-                }
+        // One change for the dock: the tab goes and the next one takes the
+        // highlight in the same frame, so the dock animates both together.
+        terminals.remove(at: index)
+        savedTerminalCount = terminals.count
+        if terminal === activeTerminal {
+            // The tab to its right takes over, or the new last tab when it was rightmost.
+            let next = terminals[min(index, terminals.count - 1)]
+            if isShowingSettings {
+                // The shell exited behind the settings pane; stay on it.
+                activeTerminal = next
+            } else {
+                activate(next)
             }
         }
         // Closing a tab to the left of the active one shifts its index too.
