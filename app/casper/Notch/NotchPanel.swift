@@ -39,6 +39,10 @@ final class NotchPanel: NSPanel {
     /// quits without asking.
     var onQuit: (() -> Void)?
 
+    /// ⌘M. Collapses the notch, the same as the collapse button in the
+    /// corner. Taken here so it works from every pane.
+    var onCollapse: (() -> Void)?
+
     /// Receives true when ⌘ goes down and false when it comes up. Also
     /// false whenever the panel stops being key: a release that lands in
     /// another app never reaches this window, so it must not stay stuck on.
@@ -96,23 +100,29 @@ final class NotchPanel: NSPanel {
     }
 
     /// The panel's own shortcuts, taken ahead of every view: ⌘⇧+ / ⌘⇧- step
-    /// the size and ⌘Q asks about quitting. Whether `event` was one of them.
+    /// the size, ⌘Q asks about quitting and ⌘M collapses. Whether `event`
+    /// was one of them.
     private func handleOwnShortcut(_ event: NSEvent) -> Bool {
         if let delta = Self.sizeStep(for: event), let onSizeStep {
             onSizeStep(delta)
             return true
         }
-        if Self.isQuit(event), let onQuit {
+        if Self.isCommandKey(event, "q"), let onQuit {
             onQuit()
+            return true
+        }
+        if Self.isCommandKey(event, "m"), let onCollapse {
+            onCollapse()
             return true
         }
         return false
     }
 
-    private static func isQuit(_ event: NSEvent) -> Bool {
+    /// Whether `event` is `key` pressed with ⌘ alone.
+    private static func isCommandKey(_ event: NSEvent, _ key: String) -> Bool {
         event.type == .keyDown
             && event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command]
-            && event.charactersIgnoringModifiers == "q"
+            && event.charactersIgnoringModifiers == key
     }
 
     private static func sizeStep(for event: NSEvent) -> Int? {

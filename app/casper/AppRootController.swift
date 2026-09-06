@@ -11,11 +11,12 @@
 //    - Moving the mouse away does NOT collapse.
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - ⌘Q                                        -> quit (after confirming), from any pane
+//    - ⌘M                                        -> same as the collapse button in the corner
 //    - ⌘T or the plus in the dock                -> open another terminal tab
 //    - ⌘W                                        -> same as the close button in the corner
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab
 //    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around
-//    - ⌘ held                                    -> the dock shows each control's key
+//    - ⌘ held                                    -> the dock and the corner controls show each control's key
 //    - settings button in the dock               -> settings pane in place of the terminal
 //    - close button in the corner                -> close the active tab; quit when it is the
 //                                                   only one or settings is up (after confirming)
@@ -79,6 +80,7 @@ final class AppRootController: ObservableObject {
     private var pill: NotchPanelPill?
     private var body: NotchPanelBody?
     private var settingsScreen: NotchSettingsScreen?
+    private var cornerControls: NotchCornerControlsHost?
 
     /// What the expanded shape shows: the settings pane when selected,
     /// otherwise the active terminal.
@@ -445,6 +447,7 @@ final class AppRootController: ObservableObject {
         let panel = NotchPanel(contentRect: frame)
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
         panel.onQuit = { [weak self] in self?.confirmQuit() }
+        panel.onCollapse = { [weak self] in self?.collapse() }
         panel.onCommandKeyChange = { [weak self] held in
             guard let self, held != self.isCommandHeld else { return }
             self.isCommandHeld = held
@@ -487,6 +490,18 @@ final class AppRootController: ObservableObject {
         container.addSubview(settings.view, positioned: .below, relativeTo: pill)
         settingsScreen = settings
 
+        // Collapse and close, in the band at the top right of the expanded
+        // shape. Their key hints hang under the band, over the pane, so
+        // they live above every pane: last in, and the terminals come in
+        // below the pill.
+        let corner = NotchCornerControlsHost(rootView: AnyView(NotchCornerControls().environmentObject(self)))
+        corner.sizingOptions = []
+        corner.safeAreaRegions = []
+        corner.bandHeight = collapsedSize.height
+        corner.frame = cornerControlsFrame(in: frame)
+        container.addSubview(corner)
+        cornerControls = corner
+
         panel.contentView = container
         panel.acceptsMouseMovedEvents = true
         panel.orderFrontRegardless()
@@ -505,6 +520,8 @@ final class AppRootController: ObservableObject {
             terminal.view.frame = paneFrame(in: frame)
         }
         settingsScreen?.view.frame = paneFrame(in: frame)
+        cornerControls?.bandHeight = collapsedSize.height
+        cornerControls?.frame = cornerControlsFrame(in: frame)
     }
 
     private func pillFrame(in panelFrame: NSRect) -> NSRect {
@@ -527,6 +544,17 @@ final class AppRootController: ObservableObject {
                       y: shapeBottom + 7,
                       width: expandedSize.width - 14,
                       height: expandedSize.height - topInset - 7)
+    }
+
+    /// Top-right corner of the expanded shape: the band the corner controls
+    /// sit in, plus the room under it for their key hints.
+    private func cornerControlsFrame(in panelFrame: NSRect) -> NSRect {
+        let sideMargin = (panelFrame.width - expandedSize.width) / 2
+        let height = collapsedSize.height + NotchCornerControls.hintReserve
+        return NSRect(x: sideMargin + expandedSize.width - NotchCornerControls.width,
+                      y: panelFrame.height - height,
+                      width: NotchCornerControls.width,
+                      height: height)
     }
 
     // Display connected/disconnected or resolution changed — the notch may have moved or vanished.

@@ -84,14 +84,6 @@ struct NotchPanelBody: View {
                 .opacity(controller.isExpanded ? 1 : 0)
                 .allowsHitTesting(false)
 
-            // Collapse and quit, in the band above the terminal at the top
-            // right of the expanded shape. Hidden and click-through while
-            // collapsed so the pill keeps the strip to itself.
-            NotchCornerControls()
-                .frame(width: size.width, height: controller.collapsedSize.height, alignment: .trailing)
-                .opacity(controller.isExpanded ? 1 : 0)
-                .allowsHitTesting(controller.isExpanded)
-
             // Floats in the band the panel reserves under the expanded shape.
             // Rises into place on the same spring as the shape; while
             // collapsed it is invisible and lets clicks through.
