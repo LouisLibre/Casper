@@ -9,9 +9,9 @@
 //  solid slot in the capsule's corner holding a chevron that points that way;
 //  a click on the slot scrolls the row a step further that way. Stepping the
 //  shape with ⌘⇧+ / ⌘⇧- widens or narrows the room for tabs along with it.
-//  While ⌘ is held the icons give way to the keys that go with it: the first
-//  nine tabs show their number (⌘1 to ⌘9), the tenth a 0 (⌘0) and the plus
-//  a T (⌘T).
+//  While ⌘ is held every control with a shortcut gets a small ⌘ badge over
+//  the corner of its icon: the first nine tabs their number (⌘1 to ⌘9), the
+//  tenth a 0 (⌘0) and the plus a T (⌘T).
 //
 //  The groups are Liquid Glass on macOS 26; older systems get the body's
 //  frosted backdrop with a hand-drawn rim. The body itself stays on the
@@ -373,9 +373,9 @@ struct NotchDock: View {
     private struct DockButton: View {
         let symbol: String
         let label: String
-        /// Drawn in place of the symbol: the key that, with ⌘, does what a
-        /// click does. Set only while ⌘ is held, and never for a control
-        /// without a shortcut.
+        /// Shown in a ⌘ badge over the icon's corner: the key that, with ⌘,
+        /// does what a click does. Set only while ⌘ is held, and never for a
+        /// control without a shortcut.
         var keyHint: String? = nil
         /// Drawn white; otherwise mid gray.
         let isOn: Bool
@@ -388,23 +388,23 @@ struct NotchDock: View {
 
         var body: some View {
             Button(action: action) {
-                ZStack {
-                    if let keyHint {
-                        Text(keyHint)
-                            .font(.system(size: 17, weight: .medium))
-                    } else {
-                        Image(systemName: symbol)
-                            .font(.system(size: 17, weight: .medium))
+                Image(systemName: symbol)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(isOn ? NotchDock.iconOn : NotchDock.iconOff)
+                    .frame(width: NotchDock.slot, height: NotchDock.slot)
+                    .background {
+                        Capsule()
+                            .fill(.white.opacity(highlighted ? 0.18 : hovering ? 0.07 : 0))
+                            .frame(width: highlightSize.width, height: highlightSize.height)
                     }
-                }
-                .foregroundStyle(isOn ? NotchDock.iconOn : NotchDock.iconOff)
-                .frame(width: NotchDock.slot, height: NotchDock.slot)
-                .background {
-                    Capsule()
-                        .fill(.white.opacity(highlighted ? 0.18 : hovering ? 0.07 : 0))
-                        .frame(width: highlightSize.width, height: highlightSize.height)
-                }
-                .contentShape(Rectangle())
+                    .overlay(alignment: .topTrailing) {
+                        if let keyHint {
+                            KeyBadge(key: keyHint)
+                                .padding(.top, 7)
+                                .padding(.trailing, 6)
+                        }
+                    }
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .focusable(false)
@@ -414,6 +414,27 @@ struct NotchDock: View {
             .animation(.easeOut(duration: 0.12), value: keyHint)
             .animation(.easeOut(duration: 0.15), value: isOn)
             .animation(.easeOut(duration: 0.15), value: highlighted)
+        }
+    }
+
+    /// Small capsule reading ⌘ and a key, laid over the corner of a
+    /// control's icon while ⌘ is held. The same solid gray as the chevron
+    /// slots, with the same hairline as the expanded shape. Kept inside the
+    /// slot, so it never reaches the capsule's clipped round ends.
+    private struct KeyBadge: View {
+        let key: String
+
+        var body: some View {
+            Text("⌘\(key)")
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .foregroundStyle(NotchDock.iconOn)
+                .padding(.trailing, 6)
+                .padding(.leading, 8)
+                .padding(.top, 2.33)
+                .padding(.bottom, 3)
+                .background { Capsule().fill(NotchDock.slotFill) }
+                .overlay { Capsule().strokeBorder(NotchPanelBody.borderColor, lineWidth: NotchPanelBody.borderWidth) }
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
         }
     }
 }
