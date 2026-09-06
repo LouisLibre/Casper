@@ -13,6 +13,7 @@
 //    - ⌘T or the plus in the dock                -> open another terminal tab
 //    - ⌘W with two or more tabs open             -> close the active tab
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab
+//    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around
 //    - ⌘ held                                    -> the dock shows each control's key
 //    - settings button in the dock               -> settings pane in place of the terminal
 //
@@ -122,8 +123,8 @@ final class AppRootController: ObservableObject {
     }
 
     /// Ghostty's goto_tab bindings: ⌘1 to ⌘9 pick a tab by number and ⌘0
-    /// the tenth, next and previous step along the row and wrap at its
-    /// ends. A number past the last tab does nothing.
+    /// the tenth; ⌘[ and ⌘] (⌃⇧Tab and ⌃Tab too) step along the row and
+    /// wrap at its ends. A number past the last tab does nothing.
     func goToTab(_ destination: TabDestination) {
         guard let active = activeTerminal,
               let current = terminals.firstIndex(where: { $0 === active }) else { return }

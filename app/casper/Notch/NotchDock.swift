@@ -11,7 +11,8 @@
 //  shape with ⌘⇧+ / ⌘⇧- widens or narrows the room for tabs along with it.
 //  While ⌘ is held every control with a shortcut gets a small ⌘ badge over
 //  the corner of its icon: the first nine tabs their number (⌘1 to ⌘9), the
-//  tenth a 0 (⌘0) and the plus a T (⌘T).
+//  tenth a 0 (⌘0) and the plus a T (⌘T). ⌘[ and ⌘] step through the tabs,
+//  and their badges sit on the ends of the tab capsule.
 //
 //  The groups are Liquid Glass on macOS 26; older systems get the body's
 //  frosted backdrop with a hand-drawn rim. The body itself stays on the
@@ -62,7 +63,7 @@ struct NotchDock: View {
                 DockGlass {
                     // Spans the capsule end to end; the padding at both ends scrolls
                     // with the tabs, so the chevron slots can fill the capsule's corners.
-                    TabStrip(width: min(rowWidth, rowWidthLimit), rowWidth: rowWidth)
+                    TabStrip(width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsKeyHints)
                 }
                 // Settings, selected while its pane is up in place of the terminal.
                 DockGlass {
@@ -78,8 +79,27 @@ struct NotchDock: View {
             // size step is not animated: the shape above snaps, so the dock does too.
             .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
         }
+        // ⌘[ and ⌘] step through the tabs; their badges straddle the ends of
+        // the tab capsule. Laid over the whole glass group, not inside it:
+        // the group draws its glass above anything in it that is not glass
+        // content, and the capsule clips what is. The badges' positions
+        // follow the capsule's ends, so they ride along when it grows.
+        .overlay {
+            if showsKeyHints {
+                EdgeKeyBadges(stripWidth: stripWidth)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: showsKeyHints)
+        .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
         .environment(\.colorScheme, .dark)
     }
+
+    /// The shortcuts are Ghostty bindings, so their badges only show while a
+    /// terminal has the keyboard, not while the settings pane does.
+    private var showsKeyHints: Bool { controller.isCommandHeld && !controller.isShowingSettings }
+
+    /// Width of the tab capsule: the row, until it outgrows its room.
+    private var stripWidth: CGFloat { min(rowWidth, rowWidthLimit) }
 
     /// Every tab and the plus side by side, with the capsule's end padding
     /// around them.
@@ -103,6 +123,8 @@ struct NotchDock: View {
         @EnvironmentObject private var controller: AppRootController
         let width: CGFloat
         let rowWidth: CGFloat
+        /// ⌘ is held: each tab and the plus wear their key's badge.
+        let showsKeyHints: Bool
 
         /// Whether the row is wider than the strip. From the layout math, not
         /// the scroll geometry: the capsule animates its growth when a tab
@@ -126,10 +148,6 @@ struct NotchDock: View {
 
         private var showsLeadingChevron: Bool { scrollable && visible.minX > Self.slack }
         private var showsTrailingChevron: Bool { scrollable && visible.maxX < rowWidth - Self.slack }
-
-        /// The shortcuts are Ghostty bindings, so they only work while a
-        /// terminal has the keyboard, not while the settings pane does.
-        private var showsKeyHints: Bool { controller.isCommandHeld && !controller.isShowingSettings }
 
         /// The digit that, with ⌘, jumps to the tab at `number` (from one):
         /// 1 to 9 for the first nine, 0 for the tenth, none past that.
@@ -397,6 +415,8 @@ struct NotchDock: View {
                             .fill(.white.opacity(highlighted ? 0.18 : hovering ? 0.07 : 0))
                             .frame(width: highlightSize.width, height: highlightSize.height)
                     }
+                    // Kept inside the slot, so the badge never reaches the
+                    // capsule's clipped round ends.
                     .overlay(alignment: .topTrailing) {
                         if let keyHint {
                             KeyBadge(key: keyHint)
@@ -417,24 +437,54 @@ struct NotchDock: View {
         }
     }
 
-    /// Small capsule reading ⌘ and a key, laid over the corner of a
-    /// control's icon while ⌘ is held. The same solid gray as the chevron
-    /// slots, with the same hairline as the expanded shape. Kept inside the
-    /// slot, so it never reaches the capsule's clipped round ends.
+    /// Small capsule reading ⌘ and a key, shown while ⌘ is held: over the
+    /// corner of a control's icon, or on an end of the tab capsule. The same
+    /// solid gray as the chevron slots, with the same hairline as the
+    /// expanded shape.
     private struct KeyBadge: View {
         let key: String
 
+        /// Brackets are thin and short at the badge's size, so they get a
+        /// heavier, larger glyph and a little room after the ⌘.
+        private var isBracket: Bool { key == "[" || key == "]" }
+
         var body: some View {
-            Text("⌘\(key)")
-                .font(.system(size: 9, weight: .medium, design: .rounded))
-                .foregroundStyle(NotchDock.iconOn)
-                .padding(.trailing, 6)
-                .padding(.leading, 8)
-                .padding(.top, 2.33)
-                .padding(.bottom, 3)
-                .background { Capsule().fill(NotchDock.slotFill) }
-                .overlay { Capsule().strokeBorder(NotchPanelBody.borderColor, lineWidth: NotchPanelBody.borderWidth) }
-                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            HStack(spacing: isBracket ? 2 : 0) {
+                Text("⌘")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                Text(key)
+                    .font(isBracket ? .system(size: 12, weight: .medium, design: .rounded)
+                                    : .system(size: 9, weight: .medium, design: .rounded))
+            }
+            .foregroundStyle(NotchDock.iconOn)
+            .padding(.trailing, 6)
+            .padding(.leading, 8)
+            .padding(.top, 2.33)
+            .padding(.bottom, 3)
+            .background { Capsule().fill(NotchDock.slotFill) }
+            .overlay { Capsule().strokeBorder(NotchPanelBody.borderColor, lineWidth: NotchPanelBody.borderWidth) }
+            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+        }
+    }
+
+    /// ⌘[ on the tab capsule's leading end and ⌘] on its trailing end, each
+    /// centered on the edge, so half of it sits outside, and a little below
+    /// mid height to keep clear of the tab badges in the top corners. In the
+    /// dock's coordinates: the capsule is the dock's first group, so its
+    /// leading end is x 0 and its trailing end is `stripWidth`. Clicks pass
+    /// through to the chevron slots under the inner halves.
+    private struct EdgeKeyBadges: View {
+        let stripWidth: CGFloat
+
+        private static let drop: CGFloat = 18
+
+        var body: some View {
+            let y = NotchDock.height / 2 + Self.drop
+            ZStack {
+                KeyBadge(key: "[").position(x: 8, y: y)
+                KeyBadge(key: "]").position(x: stripWidth - 8 , y: y)
+            }
+            .allowsHitTesting(false)
         }
     }
 }

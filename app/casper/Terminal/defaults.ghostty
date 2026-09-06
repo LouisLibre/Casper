@@ -23,3 +23,7 @@ keybind = super+digit_9=goto_tab:9
 keybind = super+9=goto_tab:9
 keybind = super+digit_0=goto_tab:10
 keybind = super+0=goto_tab:10
+# Ghostty binds ⌘[ and ⌘] to moving between splits, which the notch has
+# none of. Here they step to the previous and next tab, wrapping at the ends.
+keybind = super+[=previous_tab
+keybind = super+]=next_tab
