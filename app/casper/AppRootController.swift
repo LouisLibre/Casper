@@ -12,12 +12,12 @@
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - ⌘Q                                        -> quit (after confirming), from any pane
 //    - ⌘M                                        -> same as the collapse button in the corner
-//    - ⌘T or the plus in the dock                -> open another terminal tab
+//    - ⌘T or the plus in the dock                -> open another terminal tab, from settings too
 //    - ⌘W                                        -> same as the close button in the corner
-//    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab
-//    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around
+//    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab, from settings too
+//    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around; terminal only
 //    - ⌘ held                                    -> the dock and the corner controls show each control's key
-//    - settings button in the dock               -> settings pane in place of the terminal
+//    - ⌘S or the settings button in the dock     -> settings pane in place of the terminal
 //    - close button in the corner                -> close the active tab; quit when it is the
 //                                                   only one or settings is up (after confirming)
 //
@@ -448,6 +448,17 @@ final class AppRootController: ObservableObject {
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
         panel.onQuit = { [weak self] in self?.confirmQuit() }
         panel.onCollapse = { [weak self] in self?.collapse() }
+        panel.onShowSettings = { [weak self] in self?.showSettings() }
+        // In a terminal these keys reach Ghostty and come back through its
+        // bindings; only the settings pane needs the panel to take them.
+        panel.onTabShortcut = { [weak self] shortcut in
+            guard let self, self.isShowingSettings else { return false }
+            switch shortcut {
+            case .newTab: self.newTerminal()
+            case .tab(let number): self.goToTab(.number(number))
+            }
+            return true
+        }
         panel.onCommandKeyChange = { [weak self] held in
             guard let self, held != self.isCommandHeld else { return }
             self.isCommandHeld = held

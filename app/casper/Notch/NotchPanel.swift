@@ -43,6 +43,22 @@ final class NotchPanel: NSPanel {
     /// corner. Taken here so it works from every pane.
     var onCollapse: (() -> Void)?
 
+    /// ⌘S. Shows the settings pane, the same as the settings button in the
+    /// dock. Taken here so it works from every pane.
+    var onShowSettings: (() -> Void)?
+
+    /// ⌘T, or ⌘1 to ⌘9 and ⌘0 for the tenth tab.
+    enum TabShortcut {
+        case newTab
+        case tab(Int)
+    }
+
+    /// In a terminal the tab shortcuts are Ghostty's own bindings and reach
+    /// it as keys, but the settings pane takes no keys, so from there the
+    /// panel hands them over. Returns whether the shortcut was taken; false
+    /// leaves the key to the views, as in a terminal.
+    var onTabShortcut: ((TabShortcut) -> Bool)?
+
     /// Receives true when ⌘ goes down and false when it comes up. Also
     /// false whenever the panel stops being key: a release that lands in
     /// another app never reaches this window, so it must not stay stuck on.
@@ -100,8 +116,9 @@ final class NotchPanel: NSPanel {
     }
 
     /// The panel's own shortcuts, taken ahead of every view: ⌘⇧+ / ⌘⇧- step
-    /// the size, ⌘Q asks about quitting and ⌘M collapses. Whether `event`
-    /// was one of them.
+    /// the size, ⌘Q asks about quitting, ⌘M collapses and ⌘S shows
+    /// settings; the tab shortcuts only when the pane on screen cannot take
+    /// them. Whether `event` was one of them.
     private func handleOwnShortcut(_ event: NSEvent) -> Bool {
         if let delta = Self.sizeStep(for: event), let onSizeStep {
             onSizeStep(delta)
@@ -115,7 +132,35 @@ final class NotchPanel: NSPanel {
             onCollapse()
             return true
         }
+        if Self.isCommandKey(event, "s"), let onShowSettings {
+            onShowSettings()
+            return true
+        }
+        if let shortcut = Self.tabShortcut(for: event), let onTabShortcut, onTabShortcut(shortcut) {
+            return true
+        }
         return false
+    }
+
+    /// ⌘T, or ⌘ with a digit: 1 to 9 for those tabs, 0 for the tenth. ⌘
+    /// alone, as with Shift or Option these are other keys. Matched by the
+    /// character first, then by the physical key for layouts whose digits
+    /// need Shift: the US digit row and the keypad.
+    private static func tabShortcut(for event: NSEvent) -> TabShortcut? {
+        guard event.type == .keyDown,
+              event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command]
+        else { return nil }
+        let character = event.charactersIgnoringModifiers ?? ""
+        if character == "t" { return .newTab }
+        if let digit = Int(character), (0...9).contains(digit) {
+            return .tab(digit == 0 ? 10 : digit)
+        }
+        let digitRow: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9, 29: 10]
+        let keypad: [UInt16: Int] = [83: 1, 84: 2, 85: 3, 86: 4, 87: 5, 88: 6, 89: 7, 91: 8, 92: 9, 82: 10]
+        if let number = digitRow[event.keyCode] ?? keypad[event.keyCode] {
+            return .tab(number)
+        }
+        return nil
     }
 
     /// Whether `event` is `key` pressed with ⌘ alone.

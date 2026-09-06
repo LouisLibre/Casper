@@ -11,8 +11,10 @@
 //  shape with ⌘⇧+ / ⌘⇧- widens or narrows the room for tabs along with it.
 //  While ⌘ is held every control with a shortcut gets a small ⌘ badge over
 //  the corner of its icon: the first nine tabs their number (⌘1 to ⌘9), the
-//  tenth a 0 (⌘0) and the plus a T (⌘T). ⌘[ and ⌘] step through the tabs,
-//  and their badges sit on the ends of the tab capsule.
+//  tenth a 0 (⌘0), the plus a T (⌘T) and settings an S (⌘S). ⌘[ and ⌘]
+//  step through the tabs, and their badges sit on the ends of the tab
+//  capsule. From the settings pane only the tabs and the plus wear theirs:
+//  the brackets and ⌘S do nothing there.
 //
 //  The groups are Liquid Glass on macOS 26; older systems get the body's
 //  frosted backdrop with a hand-drawn rim. The body itself stays on the
@@ -76,11 +78,12 @@ struct NotchDock: View {
                 DockGlass {
                     // Spans the capsule end to end; the padding at both ends scrolls
                     // with the tabs, so the chevron slots can fill the capsule's corners.
-                    TabStrip(width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsKeyHints)
+                    TabStrip(width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsTabKeyHints)
                 }
-                // Settings, selected while its pane is up in place of the terminal.
+                // Settings, selected while its pane is up in place of the terminal. Same as ⌘S.
                 DockGlass {
                     DockButton(symbol: controller.isShowingSettings ? "gearshape.fill" : "gearshape", label: "Settings",
+                               keyHint: showsTerminalOnlyKeyHints ? "S" : nil,
                                isOn: controller.isShowingSettings,
                                highlighted: controller.isShowingSettings,
                                highlightSize: Self.controlHighlightSize) {
@@ -98,18 +101,23 @@ struct NotchDock: View {
         // content, and the capsule clips what is. The badges' positions
         // follow the capsule's ends, so they ride along when it grows.
         .overlay {
-            if showsKeyHints {
+            if showsTerminalOnlyKeyHints {
                 EdgeKeyBadges(stripWidth: stripWidth)
             }
         }
-        .animation(.easeOut(duration: 0.12), value: showsKeyHints)
+        .animation(.easeOut(duration: 0.12), value: showsTerminalOnlyKeyHints)
         .animation(.easeOut(duration: 0.15), value: controller.terminals.count)
         .environment(\.colorScheme, .dark)
     }
 
-    /// The shortcuts are Ghostty bindings, so their badges only show while a
-    /// terminal has the keyboard, not while the settings pane does.
-    private var showsKeyHints: Bool { controller.isCommandHeld && !controller.isShowingSettings }
+    /// ⌘ is held. The tabs and the plus wear their badges from every pane:
+    /// ⌘1 to ⌘9, ⌘0 and ⌘T reach a terminal as Ghostty's own bindings, and
+    /// from the settings pane the panel takes them itself.
+    private var showsTabKeyHints: Bool { controller.isCommandHeld }
+
+    /// ⌘[ and ⌘] step between terminals and ⌘S opens settings. Neither does
+    /// anything while the settings pane is up, so their badges stay off there.
+    private var showsTerminalOnlyKeyHints: Bool { controller.isCommandHeld && !controller.isShowingSettings }
 
     /// Width of the tab capsule: the row, until it outgrows its room.
     private var stripWidth: CGFloat { min(rowWidth, rowWidthLimit) }
