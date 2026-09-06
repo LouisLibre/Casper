@@ -9,7 +9,7 @@
 //  solid slot in the capsule's corner holding a chevron that points that way;
 //  a click on the slot scrolls the row a step further that way. Stepping the
 //  shape with ⌘⇧+ / ⌘⇧- widens or narrows the room for tabs along with it.
-//  While ⌘ is held every control with a shortcut gets a small ⌘ badge over
+//  After ⌘ is held briefly every control with a shortcut gets a small ⌘ badge over
 //  the corner of its icon: the first nine tabs their number (⌘1 to ⌘9), the
 //  tenth a 0 (⌘0), the plus a T (⌘T) and settings an S (⌘S). ⌘[ and ⌘]
 //  step through the tabs, and their badges sit on the ends of the tab
@@ -46,8 +46,18 @@ struct NotchDock: View {
     private static let capsuleEndPadding: CGFloat = 6
     /// A tab opening or closing: the capsule grows or shrinks, the tabs
     /// after it slide, and the row view (see TabScroller) follows.
-    private static let tabChange = Animation.easeOut(duration: tabChangeDuration)
-    private static let tabChangeDuration: TimeInterval = 0.15
+    private static let tabChange = Animation.easeInOut(duration: tabChangeDuration)
+    private static let tabChangeDuration: TimeInterval = 0.24
+    private static let tabFadeDuration: TimeInterval = 0.14
+
+    /// Keep a closing tab's slot until its icon has faded. These are only
+    /// presentation IDs; the controller closes the terminal immediately.
+    @State private var presentedTabs: [UUID] = []
+    @State private var closingTabs: Set<UUID> = []
+
+    private var tabIDs: [UUID] {
+        presentedTabs.isEmpty ? controller.terminals.map(\.id) : presentedTabs
+    }
 
     /// Dark fill under clear glass. A black *tint* on regular glass turns the
     /// lens edge into a thick dark band and leaves a lighter disc inside it;
@@ -69,7 +79,8 @@ struct NotchDock: View {
                 DockGlass {
                     // Spans the capsule end to end; the padding at both ends scrolls
                     // with the tabs, so the chevron slots can fill the capsule's corners.
-                    TabStrip(width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsTabKeyHints)
+                    TabStrip(tabIDs: tabIDs, closingTabs: closingTabs,
+                             width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsTabKeyHints)
                 }
                 // Settings, selected while its pane is up in place of the terminal. Same as ⌘S.
                 DockGlass {
@@ -84,7 +95,7 @@ struct NotchDock: View {
             }
             // The tab capsule grows and shrinks as terminals come and go. A
             // size step is not animated: the shape above snaps, so the dock does too.
-            .animation(Self.tabChange, value: controller.terminals.count)
+            .animation(Self.tabChange, value: tabIDs)
         }
         // ⌘[ and ⌘] step through the tabs; their badges straddle the ends of
         // the tab capsule. Laid over the whole glass group, not inside it:
@@ -97,18 +108,36 @@ struct NotchDock: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: showsTerminalOnlyKeyHints)
-        .animation(Self.tabChange, value: controller.terminals.count)
+        .animation(Self.tabChange, value: tabIDs)
+        .onAppear { presentedTabs = controller.terminals.map(\.id) }
+        .onChange(of: controller.terminals.map(\.id)) { _, ids in reconcileTabs(ids) }
         .environment(\.colorScheme, .dark)
     }
 
-    /// ⌘ is held. The tabs and the plus wear their badges from every pane:
+    private func reconcileTabs(_ ids: [UUID]) {
+        // New tabs take the plus's previous slot. Keep existing identities,
+        // including slots already fading out during rapid keyboard input.
+        let additions = ids.filter { !presentedTabs.contains($0) }
+        presentedTabs.append(contentsOf: additions)
+        let removed = Set(presentedTabs).subtracting(ids).subtracting(closingTabs)
+        guard !removed.isEmpty else { return }
+        closingTabs.formUnion(removed)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.tabFadeDuration) {
+            // Only retire this batch. A later close has its own fade, and a
+            // tab opened in the meantime must keep its new slot and identity.
+            presentedTabs.removeAll { removed.contains($0) }
+            closingTabs.subtract(removed)
+        }
+    }
+
+    /// ⌘ has been held long enough. The tabs and the plus wear their badges from every pane:
     /// ⌘1 to ⌘9, ⌘0 and ⌘T reach a terminal as Ghostty's own bindings, and
     /// from the settings pane the panel takes them itself.
-    private var showsTabKeyHints: Bool { controller.isCommandHeld }
+    private var showsTabKeyHints: Bool { controller.showsShortcutHints }
 
     /// ⌘[ and ⌘] step between terminals and ⌘S opens settings. Neither does
     /// anything while the settings pane is up, so their badges stay off there.
-    private var showsTerminalOnlyKeyHints: Bool { controller.isCommandHeld && !controller.isShowingSettings }
+    private var showsTerminalOnlyKeyHints: Bool { controller.showsShortcutHints && !controller.isShowingSettings }
 
     /// Width of the tab capsule: the row, until it outgrows its room.
     private var stripWidth: CGFloat { min(rowWidth, rowWidthLimit) }
@@ -116,7 +145,7 @@ struct NotchDock: View {
     /// Every tab and the plus side by side, with the capsule's end padding
     /// around them.
     private var rowWidth: CGFloat {
-        Self.capsuleEndPadding * 2 + Self.slot * CGFloat(controller.terminals.count + 1)
+        Self.capsuleEndPadding * 2 + Self.slot * CGFloat(tabIDs.count + 1)
     }
 
     /// What is left of the expanded shape's width for the row once the
@@ -133,6 +162,8 @@ struct NotchDock: View {
     /// when it changes, and when the strip resizes.
     private struct TabStrip: View {
         @EnvironmentObject private var controller: AppRootController
+        let tabIDs: [UUID]
+        let closingTabs: Set<UUID>
         let width: CGFloat
         let rowWidth: CGFloat
         /// ⌘ is held: each tab and the plus wear their key's badge.
@@ -187,29 +218,37 @@ struct NotchDock: View {
                 .animation(.easeOut(duration: 0.15), value: showsLeadingChevron)
                 .animation(.easeOut(duration: 0.15), value: showsTrailingChevron)
                 .onChange(of: controller.activeTerminal?.id) { revealActiveTab() }
+                .onChange(of: tabIDs) { revealActiveTab() }
                 // A ⌘⇧ size step.
                 .onChange(of: width) { revealActiveTab() }
         }
 
         private var row: some View {
-            HStack(spacing: 0) {
+            ZStack(alignment: .leading) {
                 // ⌘T adds one, ⌘W closes the active one, ⌘1 to ⌘9 and ⌘0 pick
                 // one of the first ten by number; the rest have no key to show.
-                ForEach(Array(controller.terminals.enumerated()), id: \.element.id) { index, terminal in
-                    let isActive = !controller.isShowingSettings && terminal === controller.activeTerminal
-                    let number = index + 1
+                ForEach(tabIDs, id: \.self) { id in
+                    let index = tabIDs.firstIndex(of: id) ?? 0
+                    let isClosing = closingTabs.contains(id)
+                    let isActive = !controller.isShowingSettings && id == controller.activeTerminal?.id
+                    let number = (controller.terminals.firstIndex { $0.id == id } ?? index) + 1
                     DockButton(symbol: "apple.terminal", label: "Terminal \(number)",
                                keyHint: showsKeyHints ? Self.keyHint(forTab: number) : nil,
                                isOn: isActive,
-                               highlighted: isActive) {
-                        controller.activate(terminal)
+                               highlighted: isActive,
+                               animatesSelectionOnAppear: true) {
+                        if let terminal = controller.terminals.first(where: { $0.id == id }) {
+                            controller.activate(terminal)
+                        }
                     }
-                    // A new tab fades in where the capsule has grown. A closed
-                    // one shrinks away in its slot while the tabs after it
-                    // slide up over it, so when the next tab takes the
-                    // highlight it is seen arriving, not just lit in place.
-                    .transition(.asymmetric(insertion: .opacity,
-                                            removal: .scale(scale: 0.5).combined(with: .opacity)))
+                    .opacity(isClosing ? 0 : 1)
+                    .animation(.easeOut(duration: NotchDock.tabFadeDuration), value: isClosing)
+                    .allowsHitTesting(!isClosing)
+                    .accessibilityHidden(isClosing)
+                    // Explicit slots never compress to accommodate an outgoing
+                    // view. Removal happens only once it is fully transparent.
+                    .offset(x: NotchDock.capsuleEndPadding + NotchDock.slot * CGFloat(index))
+                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
                 }
                 // Same as ⌘T. Last in the row, so it scrolls with the tabs.
                 DockButton(symbol: "plus", label: "New Terminal",
@@ -218,17 +257,12 @@ struct NotchDock: View {
                            highlighted: false) {
                     controller.newTerminal()
                 }
+                .offset(x: NotchDock.capsuleEndPadding + NotchDock.slot * CGFloat(tabIDs.count))
             }
-            .padding(.horizontal, NotchDock.capsuleEndPadding)
-            // The row is hosted on its own inside the scroller, so the dock's
-            // animation never reaches it: without one of its own a new tab
-            // would appear in a frame, with the plus already past the still
-            // growing capsule's end. Pinned to the leading end: the row view
-            // is wider than the row while the tabs are sliding, on open and on
-            // close alike (see TabScroller), and centered in it every tab
-            // would be dragged along.
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(NotchDock.tabChange, value: controller.terminals.count)
+            // Slots and capsule share the same layout transaction. The plus
+            // remains a single view, moving with the row's trailing edge.
+            .frame(maxWidth: .infinity, minHeight: NotchDock.height, alignment: .leading)
+            .animation(NotchDock.tabChange, value: tabIDs)
         }
 
         /// Brings the active tab into the clear when it is scrolled out or
@@ -241,8 +275,8 @@ struct NotchDock: View {
         private func revealActiveTab() {
             guard scrollable,
                   let active = controller.activeTerminal,
-                  let index = controller.terminals.firstIndex(where: { $0 === active }) else { return }
-            let isLast = index == controller.terminals.count - 1
+                  let index = tabIDs.firstIndex(of: active.id) else { return }
+            let isLast = index == tabIDs.count - 1
             let minX = NotchDock.capsuleEndPadding + NotchDock.slot * CGFloat(index)
             let maxX = minX + NotchDock.slot * (isLast ? 2 : 1)
             // The row may have just changed length; only the offset is taken
@@ -302,102 +336,58 @@ struct NotchDock: View {
         let id = UUID()
     }
 
-    /// Horizontal AppKit scroll view around the row. SwiftUI's ScrollView
-    /// dropped or stalled programmatic scrolls made as the row changed
-    /// length; here the row is resized and the scroll applied in one place,
-    /// in order.
-    private struct TabScroller<Row: View>: NSViewRepresentable {
+    /// Keep the row in the same SwiftUI tree as its glass. A separately
+    /// hosted row starts its layout animation on a different frame and can
+    /// leave the plus outside the shrinking capsule, even with equal durations.
+    private struct TabScroller<Row: View>: View {
         let row: Row
         let rowWidth: CGFloat
-        /// Width of the strip once the capsule has finished growing or shrinking.
         let stripWidth: CGFloat
-        /// Applied once per request id.
         let request: ScrollRequest?
-        /// The stretch of the row on screen, in row coordinates.
         let onVisibleChange: (CGRect) -> Void
 
-        func makeCoordinator() -> Coordinator { Coordinator() }
+        @State private var position = ScrollPosition(x: 0)
+        @State private var contentWidth: CGFloat = 0
+        @State private var settledContentWidth: CGFloat = 0
 
-        func makeNSView(context: Context) -> NSScrollView {
-            let scroll = NSScrollView()
-            scroll.drawsBackground = false
-            scroll.contentView.drawsBackground = false
-            scroll.hasHorizontalScroller = false
-            scroll.hasVerticalScroller = false
-            scroll.verticalScrollElasticity = .none
-            scroll.automaticallyAdjustsContentInsets = false
-            let hosting = NSHostingView(rootView: row)
-            // Sized here from the row's width; the row is one row of fixed slots.
-            hosting.sizingOptions = []
-            scroll.documentView = hosting
-            scroll.contentView.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(context.coordinator,
-                                                   selector: #selector(Coordinator.boundsChanged(_:)),
-                                                   name: NSView.boundsDidChangeNotification,
-                                                   object: scroll.contentView)
-            return scroll
+        private struct ScrollLayout: Equatable {
+            let requestID: UUID?
+            let contentWidth: CGFloat
+            let stripWidth: CGFloat
         }
 
-        func updateNSView(_ scroll: NSScrollView, context: Context) {
-            context.coordinator.onVisibleChange = onVisibleChange
-            let hosting = scroll.documentView as! NSHostingView<Row>
-            hosting.rootView = row
-            resizeRow(hosting, in: scroll, coordinator: context.coordinator)
-            if let request, request.id != context.coordinator.appliedRequest {
-                context.coordinator.appliedRequest = request.id
-                NSAnimationContext.runAnimationGroup { animation in
-                    animation.duration = 0.2
-                    animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                    scroll.contentView.animator().setBoundsOrigin(NSPoint(x: request.x, y: 0))
+        var body: some View {
+            ScrollView(.horizontal) {
+                row.frame(width: rowWidth, height: NotchDock.height, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .scrollPosition($position)
+            .defaultScrollAnchor(.leading)
+            .scrollClipDisabled()
+            .onScrollGeometryChange(for: CGRect.self) { geometry in
+                CGRect(origin: geometry.contentOffset, size: geometry.containerSize)
+            } action: { _, visible in
+                onVisibleChange(visible)
+            }
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.width } action: { _, width in
+                contentWidth = width
+            }
+            .task(id: ScrollLayout(requestID: request?.id, contentWidth: contentWidth, stripWidth: stripWidth)) {
+                guard let request else { return }
+                // ScrollView reports its target extent before an animated
+                // resize finishes. Wait for that extent to become available
+                // or it can clamp a new-tab request to the previous end.
+                // Chevron clicks in an unchanged row do not need this wait.
+                if contentWidth != settledContentWidth {
+                    do {
+                        try await Task.sleep(for: .seconds(NotchDock.tabChangeDuration))
+                    } catch { return }
                 }
-            }
-            context.coordinator.report(scroll.contentView)
-        }
-
-        /// Sizes the row view to the row. It grows at once, so a new tab has
-        /// its place from the first frame. It shrinks only after the tabs
-        /// have slid up past a closed one: the closing tab and the sliding
-        /// ones are still drawn out at the old width until then, and a row
-        /// scrolled past its new end would be yanked back the moment the
-        /// view got too short for the scroll. That row rolls back instead,
-        /// in step with the tabs.
-        private func resizeRow(_ hosting: NSView, in scroll: NSScrollView, coordinator: Coordinator) {
-            guard rowWidth != coordinator.rowWidth else { return }
-            coordinator.rowWidth = rowWidth
-            if rowWidth >= hosting.frame.width {
-                hosting.frame.size = NSSize(width: rowWidth, height: NotchDock.height)
-                return
-            }
-            let end = max(0, rowWidth - stripWidth)
-            if scroll.contentView.bounds.minX > end {
-                NSAnimationContext.runAnimationGroup { animation in
-                    animation.duration = NotchDock.tabChangeDuration
-                    animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                    scroll.contentView.animator().setBoundsOrigin(NSPoint(x: end, y: 0))
+                guard !Task.isCancelled else { return }
+                settledContentWidth = contentWidth
+                withAnimation(NotchDock.tabChange) {
+                    position.scrollTo(x: min(max(request.x, 0), max(0, rowWidth - stripWidth)))
                 }
-            }
-            // Takes the latest width: a tab opened meanwhile has already grown the view.
-            DispatchQueue.main.asyncAfter(deadline: .now() + NotchDock.tabChangeDuration) { [weak hosting, weak coordinator] in
-                guard let hosting, let coordinator else { return }
-                hosting.frame.size = NSSize(width: coordinator.rowWidth, height: NotchDock.height)
-            }
-        }
-
-        final class Coordinator: NSObject {
-            var onVisibleChange: ((CGRect) -> Void)?
-            var appliedRequest: UUID?
-            /// The row width the view was last asked to take.
-            var rowWidth: CGFloat = 0
-
-            @objc func boundsChanged(_ notification: Notification) {
-                guard let clip = notification.object as? NSClipView else { return }
-                report(clip)
-            }
-
-            /// Off the current update: SwiftUI state must not change inside one.
-            func report(_ clip: NSClipView) {
-                let visible = clip.bounds
-                DispatchQueue.main.async { self.onVisibleChange?(visible) }
             }
         }
     }
@@ -429,6 +419,7 @@ struct NotchDock: View {
                     .frame(height: NotchDock.height)
                     .background { Capsule().fill(NotchDock.fill) }
                     .clipShape(Capsule())
+                    .contentShape(Capsule())
                     .glassEffect(.clear.interactive(), in: .capsule)
                     .overlay { Capsule().strokeBorder(NotchDock.rim, lineWidth: 1) }
                     .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
@@ -443,6 +434,7 @@ struct NotchDock: View {
                             .allowsHitTesting(false)
                     }
                     .clipShape(Capsule())
+                    .contentShape(Capsule())
                     .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
             }
         }
@@ -460,19 +452,23 @@ struct NotchDock: View {
         /// Draws the pill behind the icon. Tabs only.
         let highlighted: Bool
         var highlightSize = NotchDock.tabHighlightSize
+        var animatesSelectionOnAppear = false
         let action: () -> Void
 
         @State private var hovering = false
+        @State private var appeared = false
+
+        private var selectionVisible: Bool { appeared || !animatesSelectionOnAppear }
 
         var body: some View {
             Button(action: action) {
                 Image(systemName: symbol)
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(isOn ? NotchDock.iconOn : NotchDock.iconOff)
+                    .foregroundStyle(isOn && selectionVisible ? NotchDock.iconOn : NotchDock.iconOff)
                     .frame(width: NotchDock.slot, height: NotchDock.slot)
                     .background {
                         Capsule()
-                            .fill(.white.opacity(highlighted ? 0.18 : hovering ? 0.07 : 0))
+                            .fill(.white.opacity(highlighted && selectionVisible ? 0.18 : hovering ? 0.07 : 0))
                             .frame(width: highlightSize.width, height: highlightSize.height)
                     }
                     // Kept inside the slot, so the badge never reaches the
@@ -489,11 +485,13 @@ struct NotchDock: View {
             .buttonStyle(.plain)
             .focusable(false)
             .accessibilityLabel(label)
+            .onAppear { appeared = true }
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: hovering)
             .animation(.easeOut(duration: 0.12), value: keyHint)
             .animation(.easeOut(duration: 0.15), value: isOn)
             .animation(.easeOut(duration: 0.15), value: highlighted)
+            .animation(.easeOut(duration: NotchDock.tabChangeDuration), value: appeared)
         }
     }
 

@@ -4,7 +4,7 @@
 //  Two small buttons in the top-right corner of the expanded shape: collapse
 //  the notch, and close: the active tab, or the app (after confirming) when
 //  that tab is the only one or the settings pane is up. They sit in the band
-//  above the terminal. While ⌘ is held each wears a badge under its icon
+//  above the terminal. After ⌘ is held briefly each wears a badge under its icon
 //  with the key that does the same: ⌘M for collapse, ⌘W or ⌘Q for close,
 //  whichever the button would do right now.
 //
@@ -102,7 +102,7 @@ struct NotchCornerControls: View {
 
     /// ⌘M and ⌘Q are the panel's own shortcuts and work from every pane, so
     /// unlike the dock's badges these show from the settings pane too.
-    private var showsKeyHints: Bool { controller.isCommandHeld }
+    private var showsKeyHints: Bool { controller.showsShortcutHints }
 
     /// Whether the close button quits rather than closes a tab: from the
     /// settings pane, or when the active terminal is the only one.

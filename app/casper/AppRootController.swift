@@ -35,9 +35,12 @@ final class AppRootController: ObservableObject {
     @Published private(set) var activeTerminal: NotchTerminalScreen?
     /// The settings pane is on screen in place of the active terminal.
     @Published private(set) var isShowingSettings = false
-    /// ⌘ is down while the panel has the keyboard. The dock swaps its icons
-    /// for the keys that go with ⌘ meanwhile.
-    @Published private(set) var isCommandHeld = false
+    /// Revealed only after a deliberate hold of ⌘. All badge groups share
+    /// this state so quick shortcuts never flash their hints.
+    @Published private(set) var showsShortcutHints = false
+    private var isCommandHeld = false
+    private var shortcutHintTask: Task<Void, Never>?
+    private static let shortcutHintDelay: Duration = .milliseconds(600)
     /// Whether the shape shows the frosted backdrop (on) or flat black (off).
     @Published private(set) var isTerminalTransparent = true
     /// Whether Casper is registered to start at login, mirrored from macOS.
@@ -242,8 +245,8 @@ final class AppRootController: ObservableObject {
 
     private func removeTerminal(_ terminal: NotchTerminalScreen) {
         guard let index = terminals.firstIndex(where: { $0 === terminal }) else { return }
-        // One change for the dock: the tab goes and the next one takes the
-        // highlight in the same frame, so the dock animates both together.
+        // Switch the live pane immediately. The dock keeps the outgoing
+        // icon's presentation slot long enough to fade before closing the gap.
         terminals.remove(at: index)
         savedTerminalCount = terminals.count
         if terminal === activeTerminal {
@@ -262,6 +265,29 @@ final class AppRootController: ObservableObject {
     }
 
     // MARK: - Dock and settings
+
+    /// Key release and loss of key status both cancel the pending reveal.
+    /// Other modifier changes while ⌘ stays down do not restart the delay.
+    private func setCommandHeld(_ held: Bool) {
+        guard held != isCommandHeld else { return }
+        isCommandHeld = held
+        shortcutHintTask?.cancel()
+        shortcutHintTask = nil
+
+        guard held else {
+            showsShortcutHints = false
+            return
+        }
+
+        shortcutHintTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.shortcutHintDelay)
+            } catch { return }
+            guard !Task.isCancelled, let self, self.isCommandHeld else { return }
+            self.showsShortcutHints = true
+            self.shortcutHintTask = nil
+        }
+    }
 
     /// Puts the settings pane where the active terminal was.
     func showSettings() {
@@ -454,8 +480,7 @@ final class AppRootController: ObservableObject {
             return true
         }
         panel.onCommandKeyChange = { [weak self] held in
-            guard let self, held != self.isCommandHeld else { return }
-            self.isCommandHeld = held
+            self?.setCommandHeld(held)
         }
         let panelBody = NotchPanelBody().environmentObject(self)
 
