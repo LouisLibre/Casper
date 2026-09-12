@@ -308,12 +308,11 @@ final class AppRootController: ObservableObject {
     }
 
     /// A ⌘ shortcut was typed: the user knows the key, so drop the pending
-    /// reveal and any hints already on screen. Nothing restarts the delay
+    /// reveal and keep any hints already on screen. Nothing restarts the delay
     /// until ⌘ comes back up and goes down again.
     private func dismissShortcutHintsForHold() {
         shortcutHintTask?.cancel()
         shortcutHintTask = nil
-        showsShortcutHints = false
     }
 
     /// Puts the settings pane where the active terminal was.

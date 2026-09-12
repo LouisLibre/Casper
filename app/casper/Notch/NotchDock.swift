@@ -83,9 +83,11 @@ struct NotchDock: View {
                              width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsTabKeyHints)
                 }
                 // Settings, selected while its pane is up in place of the terminal. Same as ⌘S.
+                // Its badge stays on while the pane is up, like the tabs', so
+                // the dock does not lose just one hint when settings opens.
                 DockGlass {
                     DockButton(symbol: controller.isShowingSettings ? "gearshape.fill" : "gearshape", label: "Settings",
-                               keyHint: showsTerminalOnlyKeyHints ? "S" : nil,
+                               keyHint: showsTabKeyHints ? "S" : nil,
                                isOn: controller.isShowingSettings,
                                highlighted: controller.isShowingSettings,
                                highlightSize: Self.controlHighlightSize) {
@@ -135,8 +137,8 @@ struct NotchDock: View {
     /// from the settings pane the panel takes them itself.
     private var showsTabKeyHints: Bool { controller.showsShortcutHints }
 
-    /// ⌘[ and ⌘] step between terminals and ⌘S opens settings. Neither does
-    /// anything while the settings pane is up, so their badges stay off there.
+    /// ⌘[ and ⌘] step between terminals. They do nothing while the settings
+    /// pane is up, so their badges stay off there.
     private var showsTerminalOnlyKeyHints: Bool { controller.showsShortcutHints && !controller.isShowingSettings }
 
     /// Width of the tab capsule: the row, until it outgrows its room.
