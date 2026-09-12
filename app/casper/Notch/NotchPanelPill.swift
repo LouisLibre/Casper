@@ -10,6 +10,9 @@ final class NotchPanelPill: NSView {
 
     private let iconView = NSImageView()
 
+    /// The ghost's purple: #9B83FF.
+    private static let glyphColor = NSColor(srgbRed: 0x9B / 255, green: 0x83 / 255, blue: 0xFF / 255, alpha: 1)
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configure()
@@ -49,18 +52,11 @@ final class NotchPanelPill: NSView {
     override func mouseDown(with event: NSEvent) { onClick?() }
 
     private func configure() {
-        /*
-         let icon = NSImage(resource: .menuBarIcon).copy() as! NSImage
-         icon.size = NSSize(width: 13, height: 13)
-         icon.accessibilityDescription = "Casper"
-         iconView.image = icon
-         iconView.contentTintColor = NSColor.magenta
-         */
-        
-
-        iconView.image = NSImage(systemSymbolName: "chevron.down.circle.fill", accessibilityDescription: "Casper")
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-        iconView.contentTintColor = NSColor.white.withAlphaComponent(0.85)
+        let icon = NSImage(resource: .menuBarIcon).copy() as! NSImage
+        icon.size = NSSize(width: 15, height: 15)
+        icon.accessibilityDescription = "Casper"
+        iconView.image = icon
+        iconView.contentTintColor = Self.glyphColor
         iconView.imageScaling = .scaleNone
         iconView.imageAlignment = .alignRight
         iconView.setAccessibilityElement(false)
