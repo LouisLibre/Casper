@@ -5,7 +5,9 @@
 //  the notch open so clicks outside stop collapsing it, quit the app
 //  (after confirming), and collapse the notch. They sit in the band above
 //  the terminal. After ⌘ is held briefly each wears a badge with the key
-//  that does the same: ⌘P for pin, ⌘Q for quit and ⌘M for collapse.
+//  that does the same: ⌘P for pin, ⌘Q for quit and ⌘M for collapse. Under
+//  ⌘M hangs a second badge with the chord that toggles the notch from any
+//  app (see ToggleChordMonitor).
 //
 //  The band is not tall enough to hold a badge under a button, so the
 //  quit and collapse badges hang out under it, over the top of the pane.
@@ -74,11 +76,12 @@ struct NotchCornerControls: View {
     /// How far depends on the band's height, which changes with the
     /// screen. On a band 29 tall, the icon's bottom is 9.5 below the
     /// middle of the band, then comes the 3 gap, then a badge 16.5 tall.
-    /// That puts the badge's bottom 14.5 below the band. Taller bands
-    /// need less. Rounded up to 24 to leave some room. The extra room
-    /// costs nothing: clicks in the part below the band are passed on to
-    /// the terminal (see `NotchCornerControlsHost`).
-    static let hintReserve: CGFloat = 24
+    /// That puts the badge's bottom 14.5 below the band. The chord badge
+    /// under it adds another gap and badge, 22.5 more, for 37. Taller
+    /// bands need less. Rounded up to 48 to leave some room. The extra
+    /// room costs nothing: clicks in the part below the band are passed
+    /// on to the terminal (see `NotchCornerControlsHost`).
+    static let hintReserve: CGFloat = 48
     /// Gap between a button and its badge, under or beside it.
     private static let hintGap: CGFloat = 6
 
@@ -97,6 +100,7 @@ struct NotchCornerControls: View {
             }
             CornerButton(label: "Collapse",
                          keyHint: showsKeyHints ? "M" : nil,
+                         chordHint: showsKeyHints ? ToggleChordMonitor.hint : nil,
                          dimsOnHover: true,
                          action: { controller.collapse() }) {
                 CollapseGlyph()
@@ -172,6 +176,9 @@ struct NotchCornerControls: View {
         /// The key that, with ⌘, does what a click does, shown in a badge
         /// under the button. Set only while ⌘ is held.
         let keyHint: String?
+        /// A modifier chord that does the same from any app, in a second
+        /// badge under the first. Set only while ⌘ is held.
+        var chordHint: String? = nil
         /// Where the badge goes: under the button, or beside it on the left.
         var hintPlacement: HintPlacement = .below
         /// Keeps the face at full opacity whether hovered or not, to show a
@@ -216,9 +223,12 @@ struct NotchCornerControls: View {
             // would not reach the overlay. Only the guide for the placement
             // in use is consulted.
             .overlay(alignment: hintPlacement == .below ? .bottom : .leading) {
-                ZStack {
+                VStack(spacing: NotchCornerControls.hintGap) {
                     if let keyHint {
                         KeyBadge(key: keyHint).fixedSize()
+                    }
+                    if let chordHint {
+                        KeyBadge(modifiers: "", key: chordHint).fixedSize()
                     }
                 }
                 .alignmentGuide(.bottom) { $0[.top] - NotchCornerControls.hintGap }

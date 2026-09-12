@@ -3,13 +3,16 @@
 //
 //  Small capsule reading ⌘ and a key, shown while ⌘ is held: over the
 //  corner of a dock control's icon, on an end of the tab capsule, or under
-//  a corner control. The same solid gray as the dock's chevron slots, with
-//  the same hairline as the expanded shape.
+//  a corner control. Or a bare chord such as ⌃⌥, with no ⌘ before it. The
+//  same solid gray as the dock's chevron slots, with the same hairline as
+//  the expanded shape.
 //
 
 import SwiftUI
 
 struct KeyBadge: View {
+    /// Shown before the key. Empty for a badge that reads a bare chord.
+    var modifiers = "⌘"
     let key: String
 
     /// Brackets are thin and short at the badge's size, so they get a
@@ -18,7 +21,7 @@ struct KeyBadge: View {
 
     var body: some View {
         HStack(spacing: isBracket ? 2 : 0) {
-            Text("⌘")
+            Text(modifiers)
                 .font(.system(size: 9, weight: .medium, design: .rounded))
             Text(key)
                 .font(isBracket ? .system(size: 12, weight: .medium, design: .rounded)

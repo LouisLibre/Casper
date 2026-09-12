@@ -5,6 +5,7 @@
 //
 //  Interaction model:
 //    - click on the notch strip                  -> toggle
+//    - ⌃ + left ⌥ pressed together              -> toggle, from any app; the pane takes the keyboard on expand
 //    - left button released outside the panel    -> collapse. The press alone
 //      does not, so a drag that starts in another app can end on the terminal.
 //    - right button pressed outside the panel    -> collapse
@@ -104,6 +105,7 @@ final class AppRootController: ObservableObject {
 
     private var geometry: AppGeometryReader?
     private var globalClickMonitor: Any?
+    private let toggleChord = ToggleChordMonitor()
     /// Runs from an outside left press until the button comes up again.
     private var releaseWatcher: Timer?
 
@@ -406,6 +408,13 @@ final class AppRootController: ObservableObject {
                 }
             }
         }
+
+        // ⌃ + left ⌥ pressed together, whichever app has the keyboard.
+        toggleChord.onTrigger = { [weak self] in
+            guard let self else { return }
+            self.setExpanded(!self.isExpanded)
+        }
+        toggleChord.start()
     }
 
     /// Collapses once the left button is released, unless the pointer is then
