@@ -10,8 +10,9 @@ final class NotchPanelPill: NSView {
 
     private let iconView = NSImageView()
 
-    /// The ghost's purple: #9B83FF.
-    private static let glyphColor = NSColor(srgbRed: 0x9B / 255, green: 0x83 / 255, blue: 0xFF / 255, alpha: 1)
+    /// The ghost's purple: #9B83FF. The corner's collapse button wears the
+    /// same ghost in the same purple.
+    static let glyphColor = NSColor(srgbRed: 0x9B / 255, green: 0x83 / 255, blue: 0xFF / 255, alpha: 1)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

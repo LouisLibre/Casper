@@ -24,11 +24,12 @@ struct NotchCornerControls: View {
     /// Distance from the shape's right edge.
     static let padding: CGFloat = 18
     static let spacing: CGFloat = 8
-    /// Same point size and weight for all three so they read as one set.
-    static let symbolSize: CGFloat = 16
-    static let symbolWeight: Font.Weight = .regular
-    static let restingOpacity = 0.44
-    static let hoverOpacity = 1.0
+    /// Height of the two capsules and the ghost, so the three read as one set.
+    static let glyphHeight: CGFloat = 16
+    /// The capsules rest dim and go full under the pointer; the ghost does
+    /// the reverse.
+    static let dimOpacity = 0.44
+    static let fullOpacity = 1.0
     
     /// How wide the rectangle that holds these controls is, measured from
     /// the right edge of the expanded notch.
@@ -47,18 +48,18 @@ struct NotchCornerControls: View {
     ///
     /// The value is not computed because the sizes involved come from
     /// font rendering, not from constants in this file. They were measured
-    /// from a test render: an icon is 19 wide, the pin capsule 44, the quit
-    /// capsule 50 and a badge 30. From the right edge: 18 of padding, the
-    /// collapse icon (19), a gap (8), the quit capsule (50), a gap (8), and
-    /// the pin capsule (44) add up to 147. The quit and collapse badges
+    /// from a test render: the ghost is 16 wide, the pin capsule 44, the
+    /// quit capsule 50 and a badge 30. From the right edge: 18 of padding,
+    /// the ghost (16), a gap (8), the quit capsule (50), a gap (8), and
+    /// the pin capsule (44) add up to 144. The quit and collapse badges
     /// stay over their own buttons, so they add nothing. The pin badge sits
     /// beside its capsule, so past the buttons come the gap to it (6) and
-    /// the badge (30), for 183. Rounded up to 192 to leave some room.
-    static let width: CGFloat = 192
+    /// the badge (30), for 180. Rounded up to 190 to leave some room.
+    static let width: CGFloat = 190
     /// The right part of the band that holds the three buttons, the only
-    /// part of the rectangle that takes clicks: 147 (see `width`), rounded
+    /// part of the rectangle that takes clicks: 144 (see `width`), rounded
     /// up to leave some room.
-    static let buttonsWidth: CGFloat = 156
+    static let buttonsWidth: CGFloat = 152
     
     /// How far the rectangle that holds these controls extends below the
     /// band.
@@ -96,8 +97,9 @@ struct NotchCornerControls: View {
             }
             CornerButton(label: "Collapse",
                          keyHint: showsKeyHints ? "M" : nil,
+                         dimsOnHover: true,
                          action: { controller.collapse() }) {
-                CornerIcon(symbol: "chevron.up.circle.fill")
+                CollapseGlyph()
             }
         }
         // The buttons are centered in the band; the badges hang out under it.
@@ -116,20 +118,23 @@ struct NotchCornerControls: View {
     /// too.
     private var showsKeyHints: Bool { controller.showsShortcutHints }
 
-    /// A circle icon, drawn in plain white. The button fades it to the
-    /// resting opacity.
-    private struct CornerIcon: View {
-        let symbol: String
-
+    /// The ghost from the collapsed strip, where a click expands the notch;
+    /// here it collapses it. The strip's purple, as tall as the capsules.
+    /// Full at rest, as on the strip; the button dims it under the pointer,
+    /// the reverse of the capsules.
+    private struct CollapseGlyph: View {
         var body: some View {
-            Image(systemName: symbol)
-                .font(.system(size: NotchCornerControls.symbolSize, weight: NotchCornerControls.symbolWeight))
-                .foregroundStyle(.white)
+            Image(.menuBarIcon)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(height: NotchCornerControls.glyphHeight)
+                .foregroundStyle(Color(nsColor: NotchPanelPill.glyphColor))
         }
     }
 
     /// A capsule holding a small symbol and a short word, styled after the
-    /// circle icons: a white outline with white contents, like
+    /// SF circle symbols: a white outline with white contents, like
     /// `pin.circle`. Switched on, a solid white capsule with the contents
     /// in the band's black, like `pin.circle.fill`.
     private struct CornerCapsule: View {
@@ -137,11 +142,8 @@ struct NotchCornerControls: View {
         let text: String
         var isOn = false
 
-        /// The circle icons draw their circle as tall as their point size
-        /// (measured: a 16 circle on an 18 frame), so the capsule takes
-        /// that height to end up level with them.
-        private static let height = NotchCornerControls.symbolSize
-        /// As thick as the circle icons' ring at that size (measured).
+        private static let height = NotchCornerControls.glyphHeight
+        /// As thick as the ring of an SF circle symbol at 16 points (measured).
         private static let lineWidth: CGFloat = 1.3
 
         var body: some View {
@@ -175,8 +177,10 @@ struct NotchCornerControls: View {
         /// Keeps the face at full opacity whether hovered or not, to show a
         /// state that is switched on. Off for buttons that only do something.
         var isLit = false
+        /// Full at rest and dim under the pointer, instead of the reverse.
+        var dimsOnHover = false
         let action: () -> Void
-        /// What the button shows: a capsule, or a circle icon.
+        /// What the button shows: a capsule, or the ghost.
         @ViewBuilder let face: () -> Face
 
         @State private var hovering = false
@@ -187,8 +191,9 @@ struct NotchCornerControls: View {
         }
 
         private var opacity: Double {
-            if isLit || hovering { return NotchCornerControls.hoverOpacity }
-            return NotchCornerControls.restingOpacity
+            if isLit { return NotchCornerControls.fullOpacity }
+            let full = dimsOnHover ? !hovering : hovering
+            return full ? NotchCornerControls.fullOpacity : NotchCornerControls.dimOpacity
         }
 
         var body: some View {
