@@ -13,8 +13,10 @@
 //  the corner of its icon: the first nine tabs their number (⌘1 to ⌘9), the
 //  tenth a 0 (⌘0), the plus a T (⌘T) and settings an S (⌘S). ⌘[ and ⌘]
 //  step through the tabs, and their badges sit on the ends of the tab
-//  capsule. From the settings pane only the tabs and the plus wear theirs:
-//  the brackets and ⌘S do nothing there.
+//  capsule; ⌘W closes the active tab, and its badge sits under that tab's
+//  number badge, level with them. From the settings pane
+//  only the tabs and the plus wear theirs: the brackets and ⌘S do nothing
+//  there, and no tab is active.
 //
 //  The groups are Liquid Glass on macOS 26; older systems get the body's
 //  frosted backdrop with a hand-drawn rim. The body itself stays on the
@@ -42,6 +44,12 @@ struct NotchDock: View {
     /// Highlight for a standalone control. Its capsule is a circle, so the
     /// highlight is a circle inset evenly from it to keep the two concentric.
     private static let controlHighlightSize = CGSize(width: 40, height: 40)
+    /// The bracket badges and the ⌘W badge sit this far below mid height,
+    /// clear of the tab badges in the top corners.
+    private static let lowerBadgeDrop: CGFloat = 18
+    /// A badge in a slot's top trailing corner sits this far in from the
+    /// slot's trailing edge. The ⌘W badge lines up under it.
+    private static let slotBadgeTrailingPadding: CGFloat = 6
     private static let groupSpacing: CGFloat = 12
     private static let capsuleEndPadding: CGFloat = 6
     /// A tab opening or closing: the capsule grows or shrinks, the tabs
@@ -54,6 +62,9 @@ struct NotchDock: View {
     /// presentation IDs; the controller closes the terminal immediately.
     @State private var presentedTabs: [UUID] = []
     @State private var closingTabs: Set<UUID> = []
+    /// How far the tab row is scrolled, reported by the strip. Places the
+    /// ⌘W badge over the active tab from outside the capsule.
+    @State private var rowScrollX: CGFloat = 0
 
     private var tabIDs: [UUID] {
         presentedTabs.isEmpty ? controller.terminals.map(\.id) : presentedTabs
@@ -80,7 +91,8 @@ struct NotchDock: View {
                     // Spans the capsule end to end; the padding at both ends scrolls
                     // with the tabs, so the chevron slots can fill the capsule's corners.
                     TabStrip(tabIDs: tabIDs, closingTabs: closingTabs,
-                             width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsTabKeyHints)
+                             width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsTabKeyHints,
+                             scrollX: $rowScrollX)
                 }
                 // Settings, selected while its pane is up in place of the terminal. Same as ⌘S.
                 // Its badge stays on while the pane is up, like the tabs', so
@@ -100,13 +112,18 @@ struct NotchDock: View {
             .animation(Self.tabChange, value: tabIDs)
         }
         // ⌘[ and ⌘] step through the tabs; their badges straddle the ends of
-        // the tab capsule. Laid over the whole glass group, not inside it:
-        // the group draws its glass above anything in it that is not glass
-        // content, and the capsule clips what is. The badges' positions
-        // follow the capsule's ends, so they ride along when it grows.
+        // the tab capsule. ⌘W closes the active tab; its badge sits under
+        // that tab's number badge. Laid over the whole glass group, not
+        // inside it: the group draws its glass above anything in it that is
+        // not glass content, and the capsule clips what is. The badges'
+        // positions follow the capsule's ends and the active tab, so they
+        // ride along when the capsule grows or the row scrolls.
         .overlay {
             if showsTerminalOnlyKeyHints {
                 EdgeKeyBadges(stripWidth: stripWidth)
+                if let slot = activeTabSlot {
+                    CloseKeyBadge(numberKey: Self.keyHint(forTab: slot.number), slotMaxX: slot.maxX)
+                }
             }
         }
         .animation(.easeOut(duration: 0.12), value: showsTerminalOnlyKeyHints)
@@ -144,6 +161,31 @@ struct NotchDock: View {
     /// Width of the tab capsule: the row, until it outgrows its room.
     private var stripWidth: CGFloat { min(rowWidth, rowWidthLimit) }
 
+    /// The active tab: its number (from one) and its slot's trailing edge
+    /// in the dock's coordinates, moved by the row's scroll. Nil while the
+    /// slot is not wholly inside the strip: revealing brings it back, but
+    /// the chevrons can scroll it out in between, and the ⌘W badge should
+    /// not float over them.
+    private var activeTabSlot: (number: Int, maxX: CGFloat)? {
+        guard let active = controller.activeTerminal,
+              let index = tabIDs.firstIndex(of: active.id) else { return nil }
+        let slotMinX = Self.capsuleEndPadding + Self.slot * CGFloat(index) - rowScrollX
+        let slotMaxX = slotMinX + Self.slot
+        guard slotMinX >= 0, slotMaxX <= stripWidth else { return nil }
+        let number = (controller.terminals.firstIndex { $0.id == active.id } ?? index) + 1
+        return (number, slotMaxX)
+    }
+
+    /// The digit that, with ⌘, jumps to the tab at `number` (from one):
+    /// 1 to 9 for the first nine, 0 for the tenth, none past that.
+    private static func keyHint(forTab number: Int) -> String? {
+        switch number {
+        case 1...9: return "\(number)"
+        case 10: return "0"
+        default: return nil
+        }
+    }
+
     /// Every tab and the plus side by side, with the capsule's end padding
     /// around them.
     private var rowWidth: CGFloat {
@@ -170,6 +212,8 @@ struct NotchDock: View {
         let rowWidth: CGFloat
         /// ⌘ is held: each tab and the plus wear their key's badge.
         let showsKeyHints: Bool
+        /// How far the row is scrolled, for the dock to place the ⌘W badge.
+        @Binding var scrollX: CGFloat
 
         /// Whether the row is wider than the strip. From the layout math, not
         /// the scroll geometry: the capsule animates its growth when a tab
@@ -194,18 +238,11 @@ struct NotchDock: View {
         private var showsLeadingChevron: Bool { scrollable && visible.minX > Self.slack }
         private var showsTrailingChevron: Bool { scrollable && visible.maxX < rowWidth - Self.slack }
 
-        /// The digit that, with ⌘, jumps to the tab at `number` (from one):
-        /// 1 to 9 for the first nine, 0 for the tenth, none past that.
-        private static func keyHint(forTab number: Int) -> String? {
-            switch number {
-            case 1...9: return "\(number)"
-            case 10: return "0"
-            default: return nil
-            }
-        }
-
         var body: some View {
-            TabScroller(row: row, rowWidth: rowWidth, stripWidth: width, request: request) { visible = $0 }
+            TabScroller(row: row, rowWidth: rowWidth, stripWidth: width, request: request) {
+                visible = $0
+                scrollX = $0.minX
+            }
                 .frame(width: width, height: NotchDock.height)
                 .overlay(alignment: .leading) {
                     if showsLeadingChevron {
@@ -235,7 +272,7 @@ struct NotchDock: View {
                     let isActive = !controller.isShowingSettings && id == controller.activeTerminal?.id
                     let number = (controller.terminals.firstIndex { $0.id == id } ?? index) + 1
                     DockButton(symbol: "apple.terminal", label: "Terminal \(number)",
-                               keyHint: showsKeyHints ? Self.keyHint(forTab: number) : nil,
+                               keyHint: showsKeyHints ? NotchDock.keyHint(forTab: number) : nil,
                                isOn: isActive,
                                highlighted: isActive,
                                animatesSelectionOnAppear: true) {
@@ -482,7 +519,7 @@ struct NotchDock: View {
                         if let keyHint {
                             KeyBadge(key: keyHint)
                                 .padding(.top, 7)
-                                .padding(.trailing, 6)
+                                .padding(.trailing, NotchDock.slotBadgeTrailingPadding)
                         }
                     }
                     .contentShape(Rectangle())
@@ -502,21 +539,53 @@ struct NotchDock: View {
     }
 
     /// ⌘[ on the tab capsule's leading end and ⌘] on its trailing end, each
-    /// centered on the edge, so half of it sits outside, and a little below
-    /// mid height to keep clear of the tab badges in the top corners. In the
-    /// dock's coordinates: the capsule is the dock's first group, so its
-    /// leading end is x 0 and its trailing end is `stripWidth`. Clicks pass
-    /// through to the chevron slots under the inner halves.
+    /// centered on the end's outermost point, and a little below mid height
+    /// to keep clear of the tab badges in the top corners. Centered on the
+    /// curve at that height they would sit further in and run into ⌘W when
+    /// the first tab is active. In the dock's coordinates: the capsule is
+    /// the dock's first group, so its leading end is x 0 and its trailing
+    /// end is `stripWidth`. Clicks pass through to the chevron slots under
+    /// the inner halves.
     private struct EdgeKeyBadges: View {
         let stripWidth: CGFloat
 
-        private static let drop: CGFloat = 18
+        var body: some View {
+            let y = NotchDock.height / 2 + NotchDock.lowerBadgeDrop
+            ZStack {
+                KeyBadge(key: "[").position(x: 0, y: y)
+                KeyBadge(key: "]").position(x: stripWidth, y: y)
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// ⌘W on the active tab: level with the bracket badges, and under the
+    /// tab's number badge in its top trailing corner with their leading
+    /// edges flush. A hidden copy of that badge, placed the way DockButton
+    /// places it, stands in for it, so the two line up whatever the
+    /// number's width. Tabs past the tenth have no number badge; ⌘W then
+    /// sits where one would be. Clicks pass through to the tab under it.
+    ///
+    /// The ZStack is not decoration. The badge comes and goes with the
+    /// hints, and a transition runs on the root of what comes and goes. A
+    /// positioned view as that root would get the badge's own scale
+    /// transition applied to its full-size frame, scaling about the dock's
+    /// center, so the badge would slide into place. With the ZStack as
+    /// root it fades in where it sits, like the bracket badges.
+    private struct CloseKeyBadge: View {
+        let numberKey: String?
+        /// The slot's trailing edge, in the dock's coordinates.
+        let slotMaxX: CGFloat
 
         var body: some View {
-            let y = NotchDock.height / 2 + Self.drop
             ZStack {
-                KeyBadge(key: "[").position(x: 8, y: y)
-                KeyBadge(key: "]").position(x: stripWidth - 8 , y: y)
+                KeyBadge(key: numberKey ?? "0")
+                    .hidden()
+                    // Its own size, not the stand-in's: ⌘W is the wider badge.
+                    .overlay(alignment: .leading) { KeyBadge(key: "W").fixedSize() }
+                    .padding(.trailing, NotchDock.slotBadgeTrailingPadding)
+                    .frame(width: NotchDock.slot, alignment: .trailing)
+                    .position(x: slotMaxX - NotchDock.slot / 2, y: NotchDock.height / 2 + NotchDock.lowerBadgeDrop)
             }
             .allowsHitTesting(false)
         }
