@@ -42,12 +42,14 @@ final class AppRootController: ObservableObject {
     @Published private(set) var activeTerminal: NotchTerminalScreen?
     /// The settings pane is on screen in place of the active terminal.
     @Published private(set) var isShowingSettings = false
-    /// Revealed only after a deliberate hold of ⌘. All badge groups share
-    /// this state so quick shortcuts never flash their hints.
+    /// Revealed only after a deliberate hold of ⌘ with no key pressed. All
+    /// badge groups share this state so quick shortcuts never flash their
+    /// hints. Typing a shortcut during the hold cancels the reveal until ⌘
+    /// is released and held again.
     @Published private(set) var showsShortcutHints = false
     private var isCommandHeld = false
     private var shortcutHintTask: Task<Void, Never>?
-    private static let shortcutHintDelay: Duration = .milliseconds(600)
+    private static let shortcutHintDelay: Duration = .milliseconds(800)
     /// Whether the shape shows the frosted backdrop (on) or flat black (off).
     @Published private(set) var isTerminalTransparent = true
     /// Whether Casper is registered to start at login, mirrored from macOS.
@@ -305,6 +307,15 @@ final class AppRootController: ObservableObject {
         }
     }
 
+    /// A ⌘ shortcut was typed: the user knows the key, so drop the pending
+    /// reveal and any hints already on screen. Nothing restarts the delay
+    /// until ⌘ comes back up and goes down again.
+    private func dismissShortcutHintsForHold() {
+        shortcutHintTask?.cancel()
+        shortcutHintTask = nil
+        showsShortcutHints = false
+    }
+
     /// Puts the settings pane where the active terminal was.
     func showSettings() {
         let previous = activePane
@@ -510,6 +521,9 @@ final class AppRootController: ObservableObject {
         }
         panel.onCommandKeyChange = { [weak self] held in
             self?.setCommandHeld(held)
+        }
+        panel.onCommandShortcut = { [weak self] in
+            self?.dismissShortcutHintsForHold()
         }
         let panelBody = NotchPanelBody().environmentObject(self)
 

@@ -68,6 +68,11 @@ final class NotchPanel: NSPanel {
     /// another app never reaches this window, so it must not stay stuck on.
     var onCommandKeyChange: ((Bool) -> Void)?
 
+    /// Called for every key pressed while ⌘ is down, whoever ends up taking
+    /// it. The user has typed a shortcut, so the hints for this hold of ⌘
+    /// are not needed.
+    var onCommandShortcut: (() -> Void)?
+
     // Borderless windows refuse key status unless we opt in — the terminal needs keyboard input.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -83,6 +88,7 @@ final class NotchPanel: NSPanel {
     /// stripped. Ghostty claims that retry for minus (⌘- is its font
     /// binding), so the size shortcuts must be taken here, ahead of it.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        noteCommandShortcut(event)
         if handleOwnShortcut(event) { return true }
         return super.performKeyEquivalent(with: event)
     }
@@ -101,6 +107,7 @@ final class NotchPanel: NSPanel {
         if event.type == .flagsChanged {
             onCommandKeyChange?(event.modifierFlags.contains(.command))
         }
+        noteCommandShortcut(event)
         // As a .nonactivatingPanel this window takes key status without
         // making the app active, so the user types here while another app
         // owns the menu bar. AppKit only runs its ⌘-shortcut pass
@@ -117,6 +124,14 @@ final class NotchPanel: NSPanel {
             return
         }
         super.sendEvent(event)
+    }
+
+    /// Reports a ⌘ key press before anyone handles it. The same event may
+    /// pass through here twice (the key-equivalent pass and then `sendEvent`);
+    /// that is harmless.
+    private func noteCommandShortcut(_ event: NSEvent) {
+        guard event.type == .keyDown, event.modifierFlags.contains(.command) else { return }
+        onCommandShortcut?()
     }
 
     /// The panel's own shortcuts, taken ahead of every view: ⌘⇧+ / ⌘⇧- step
