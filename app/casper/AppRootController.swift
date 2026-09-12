@@ -17,13 +17,13 @@
 //    - ⌘P                                        -> same as the pin button in the corner
 //    - ⌘T or the plus in the dock                -> open another terminal tab in the active
 //                                                   tab's directory, from settings too
-//    - ⌘W                                        -> same as the close button in the corner
+//    - ⌘W                                        -> close the active tab; quit when it is the
+//                                                   only one (after confirming)
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab, from settings too
 //    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around; terminal only
 //    - ⌘ held                                    -> the dock and the corner controls show each control's key
 //    - ⌘S or the settings button in the dock     -> settings pane in place of the terminal
-//    - close button in the corner                -> close the active tab; quit when it is the
-//                                                   only one or settings is up (after confirming)
+//    - quit button in the corner                 -> same as ⌘Q
 //
 
 import AppKit
@@ -226,7 +226,7 @@ final class AppRootController: ObservableObject {
     /// libghostty wants this terminal gone. A shell that exited on its own
     /// takes its tab with it, or gets a fresh shell when it was the only
     /// one: the notch always keeps a live terminal. The close binding (⌘W)
-    /// goes the same way as the corner close button.
+    /// closes the tab, or asks about quitting when it is the only one.
     private func closeRequested(by terminal: NotchTerminalScreen) {
         // Requests arrive deferred, so this one may be for a tab already gone.
         guard terminals.contains(where: { $0 === terminal }) else { return }
@@ -344,16 +344,6 @@ final class AppRootController: ObservableObject {
     func togglePinned() {
         isPinned.toggle()
         focusActivePane()
-    }
-
-    /// The corner close button: closes the active terminal, or asks about
-    /// quitting from the settings pane.
-    func closeActivePane() {
-        guard !isShowingSettings, let terminal = activeTerminal else {
-            confirmQuit()
-            return
-        }
-        close(terminal)
     }
 
     /// Asks before quitting: the shells and anything running in them die

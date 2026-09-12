@@ -2,15 +2,13 @@
 //  NotchCornerControls.swift
 //
 //  Three small buttons in the top-right corner of the expanded shape: pin
-//  the notch open so clicks outside stop collapsing it, collapse the notch,
-//  and close: the active tab, or the app (after confirming) when that tab is
-//  the only one or the settings pane is up. They sit in the band above the
-//  terminal. After ⌘ is held briefly each wears a badge with the key that
-//  does the same: ⌘P for pin, ⌘M for collapse, ⌘W or ⌘Q for close,
-//  whichever the button would do right now.
+//  the notch open so clicks outside stop collapsing it, quit the app
+//  (after confirming), and collapse the notch. They sit in the band above
+//  the terminal. After ⌘ is held briefly each wears a badge with the key
+//  that does the same: ⌘P for pin, ⌘Q for quit and ⌘M for collapse.
 //
-//  The band is not tall enough to hold a badge under an icon, so the
-//  collapse and close badges hang out under it, over the top of the pane.
+//  The band is not tall enough to hold a badge under a button, so the
+//  quit and collapse badges hang out under it, over the top of the pane.
 //  The pin badge sits beside its capsule instead, on the left, where the
 //  band has room. The panes sit above the panel's SwiftUI body, so the
 //  controls live in a host of their own above them
@@ -49,27 +47,26 @@ struct NotchCornerControls: View {
     ///
     /// The value is not computed because the sizes involved come from
     /// font rendering, not from constants in this file. They were measured
-    /// from a test render: an icon is 19 wide, the pin capsule 44 and a
-    /// badge 30. From the right edge: 18 of padding, the close icon (19),
-    /// a gap (8), the collapse icon (19), a gap (8), and the pin capsule
-    /// (44) add up to 116. The collapse badge is wider than its icon and
-    /// nudged left, but it stays over the pin capsule, so it adds nothing.
-    /// The pin badge sits beside its capsule, so past the buttons come the
-    /// gap to it (6) and the badge (30), for 152. Rounded up to 160 to
-    /// leave some room.
-    static let width: CGFloat = 160
+    /// from a test render: an icon is 19 wide, the pin capsule 44, the quit
+    /// capsule 50 and a badge 30. From the right edge: 18 of padding, the
+    /// collapse icon (19), a gap (8), the quit capsule (50), a gap (8), and
+    /// the pin capsule (44) add up to 147. The quit and collapse badges
+    /// stay over their own buttons, so they add nothing. The pin badge sits
+    /// beside its capsule, so past the buttons come the gap to it (6) and
+    /// the badge (30), for 183. Rounded up to 192 to leave some room.
+    static let width: CGFloat = 192
     /// The right part of the band that holds the three buttons, the only
-    /// part of the rectangle that takes clicks: 116 (see `width`), rounded
+    /// part of the rectangle that takes clicks: 147 (see `width`), rounded
     /// up to leave some room.
-    static let buttonsWidth: CGFloat = 124
+    static let buttonsWidth: CGFloat = 156
     
     /// How far the rectangle that holds these controls extends below the
     /// band.
     ///
     /// The band is the dark strip along the top of the expanded notch. It
-    /// is as tall as the collapsed notch, and the icons sit centered
+    /// is as tall as the collapsed notch, and the buttons sit centered
     /// in it. The terminal starts right under it. A badge does not fit in
-    /// the band under an icon, so it hangs out below the band, over the
+    /// the band under a button, so it hangs out below the band, over the
     /// top of the terminal, and the rectangle must reach down far enough
     /// to show it.
     ///
@@ -81,30 +78,26 @@ struct NotchCornerControls: View {
     /// costs nothing: clicks in the part below the band are passed on to
     /// the terminal (see `NotchCornerControlsHost`).
     static let hintReserve: CGFloat = 24
-    /// Gap between an icon and its badge, under or beside it.
+    /// Gap between a button and its badge, under or beside it.
     private static let hintGap: CGFloat = 6
-    /// The badges are wider than the icons and would touch if each sat
-    /// centered under its icon, so each is nudged this far outward: the
-    /// collapse badge left, the close badge right.
-    private static let hintShift: CGFloat = 6
 
     var body: some View {
         HStack(spacing: Self.spacing) {
             CornerButton(label: controller.isPinned ? "Unpin to set auto-collapse on" : "Pin to set auto-collapse off",
-                         keyHint: showsKeyHints ? "P" : nil, hintShift: 0,
+                         keyHint: showsKeyHints ? "P" : nil,
                          hintPlacement: .leading, isLit: controller.isPinned,
                          action: { controller.togglePinned() }) {
-                PinCapsule(isOn: controller.isPinned)
+                CornerCapsule(symbol: "pin.fill", text: "PIN", isOn: controller.isPinned)
+            }
+            CornerButton(label: "Quit Casper",
+                         keyHint: showsKeyHints ? "Q" : nil,
+                         action: { controller.confirmQuit() }) {
+                CornerCapsule(symbol: "command", text: "QUIT")
             }
             CornerButton(label: "Collapse",
-                         keyHint: showsKeyHints ? "M" : nil, hintShift: -Self.hintShift,
+                         keyHint: showsKeyHints ? "M" : nil,
                          action: { controller.collapse() }) {
                 CornerIcon(symbol: "chevron.up.circle.fill")
-            }
-            CornerButton(label: closeLabel,
-                         keyHint: showsKeyHints ? closeKeyHint : nil, hintShift: Self.hintShift,
-                         action: { controller.closeActivePane() }) {
-                CornerIcon(symbol: "x.circle.fill")
             }
         }
         // The buttons are centered in the band; the badges hang out under it.
@@ -123,19 +116,8 @@ struct NotchCornerControls: View {
     /// too.
     private var showsKeyHints: Bool { controller.showsShortcutHints }
 
-    /// Whether the close button quits rather than closes a tab: from the
-    /// settings pane, or when the active terminal is the only one.
-    private var closeQuits: Bool { controller.isShowingSettings || controller.terminals.count < 2 }
-
-    /// What the close button does right now, for accessibility.
-    private var closeLabel: String { closeQuits ? "Quit Casper" : "Close Tab" }
-
-    /// ⌘W closes the tab (a Ghostty binding, routed to the same place as
-    /// the button); ⌘Q asks about quitting.
-    private var closeKeyHint: String { closeQuits ? "Q" : "W" }
-
-    /// One of the circle icons, drawn in plain white. The button fades it
-    /// to the resting opacity.
+    /// A circle icon, drawn in plain white. The button fades it to the
+    /// resting opacity.
     private struct CornerIcon: View {
         let symbol: String
 
@@ -146,12 +128,14 @@ struct NotchCornerControls: View {
         }
     }
 
-    /// The pin button's face: a capsule holding a pin and the word PIN,
-    /// styled after the circle icons beside it. Off, it is a white outline
-    /// with white contents, like `pin.circle`. On, a solid white capsule
-    /// with the contents in the band's black, like `pin.circle.fill`.
-    private struct PinCapsule: View {
-        let isOn: Bool
+    /// A capsule holding a small symbol and a short word, styled after the
+    /// circle icons: a white outline with white contents, like
+    /// `pin.circle`. Switched on, a solid white capsule with the contents
+    /// in the band's black, like `pin.circle.fill`.
+    private struct CornerCapsule: View {
+        let symbol: String
+        let text: String
+        var isOn = false
 
         /// The circle icons draw their circle as tall as their point size
         /// (measured: a 16 circle on an 18 frame), so the capsule takes
@@ -162,12 +146,12 @@ struct NotchCornerControls: View {
 
         var body: some View {
             HStack(spacing: 3) {
-                Image(systemName: "pin.fill")
+                Image(systemName: symbol)
                     .font(.system(size: 8, weight: .semibold))
-                Text("PIN")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                Text(text)
+                    .font(.system(size: 8, weight: .bold, design: .rounded))
             }
-            .foregroundStyle(isOn ? .black : .white)
+            .foregroundStyle(isOn ? .black : .white.opacity(0.75))
             .padding(.leading, 6)
             .padding(.trailing, 7)
             .frame(height: Self.height)
@@ -175,7 +159,7 @@ struct NotchCornerControls: View {
                 if isOn {
                     Capsule().fill(.white)
                 } else {
-                    Capsule().strokeBorder(.white, lineWidth: Self.lineWidth)
+                    Capsule().strokeBorder(.white.opacity(0.75), lineWidth: Self.lineWidth)
                 }
             }
         }
@@ -186,15 +170,13 @@ struct NotchCornerControls: View {
         /// The key that, with ⌘, does what a click does, shown in a badge
         /// under the button. Set only while ⌘ is held.
         let keyHint: String?
-        /// How far the badge sits off center under the button, positive to the right.
-        let hintShift: CGFloat
         /// Where the badge goes: under the button, or beside it on the left.
         var hintPlacement: HintPlacement = .below
         /// Keeps the face at full opacity whether hovered or not, to show a
         /// state that is switched on. Off for buttons that only do something.
         var isLit = false
         let action: () -> Void
-        /// What the button shows: a circle icon, or the pin capsule.
+        /// What the button shows: a capsule, or a circle icon.
         @ViewBuilder let face: () -> Face
 
         @State private var hovering = false
@@ -236,7 +218,6 @@ struct NotchCornerControls: View {
                 }
                 .alignmentGuide(.bottom) { $0[.top] - NotchCornerControls.hintGap }
                 .alignmentGuide(.leading) { $0[.trailing] + NotchCornerControls.hintGap }
-                .offset(x: hintShift)
                 .allowsHitTesting(false)
             }
             .animation(.easeOut(duration: 0.12), value: keyHint)
