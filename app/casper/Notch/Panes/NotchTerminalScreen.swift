@@ -32,12 +32,20 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
     var needsConfirmClose: Bool { surfaceView?.needsConfirmClose ?? false }
     /// Whether the shell itself has ended.
     var processExited: Bool { surfaceView?.processExited ?? false }
+    /// The shell's directory: where it started, then whatever it last
+    /// reported through shell integration. nil while there is no shell.
+    var workingDirectory: String? { surfaceView?.workingDirectory }
+    /// Where a tab opened from this one should start, by Ghostty's
+    /// `tab-inherit-working-directory` rule. nil means the default.
+    var inheritedWorkingDirectory: String? { surfaceView?.inheritedWorkingDirectory }
 
     /// Ghostty's new_tab binding (⌘T) fired in this terminal.
     var onNewTabRequest: (() -> Void)?
     /// One of Ghostty's goto_tab bindings (⌘1–⌘9, next and previous tab)
     /// fired in this terminal.
     var onGoToTabRequest: ((TabDestination) -> Void)?
+    /// The shell changed directory; see `workingDirectory`.
+    var onWorkingDirectoryChange: (() -> Void)?
     /// libghostty wants this terminal gone: the shell exited, or the close
     /// binding (⌘W) fired; `processExited` tells the two apart. The owner
     /// decides between closing the tab, starting a fresh shell and quitting.
@@ -48,22 +56,23 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
     /// spawned in the meantime starts out visible and focused.
     private var revealed = false
 
-    /// Launches the user's login shell. Called once, after the pane view has
-    /// its frame and lives in the panel; the process keeps running regardless
-    /// of the notch's expanded state.
-    func startShellIfNeeded() {
+    /// Launches the user's login shell in `workingDirectory`, or the home
+    /// directory when that is nil. Called once, after the pane view has its
+    /// frame and lives in the panel; the process keeps running regardless of
+    /// the notch's expanded state.
+    func startShellIfNeeded(in workingDirectory: String?) {
         guard !started else { return }
         started = true
-        spawnSurface()
+        spawnSurface(in: workingDirectory)
     }
 
     /// libghostty spawns the login shell itself (via `login`, as Ghostty.app
-    /// does) in the home directory, with TERM=xterm-ghostty and
-    /// TERM_PROGRAM=ghostty backed by the bundled terminfo and shell
-    /// integration.
-    private func spawnSurface() {
+    /// does) in `workingDirectory` (home when nil or gone), with
+    /// TERM=xterm-ghostty and TERM_PROGRAM=ghostty backed by the bundled
+    /// terminfo and shell integration.
+    private func spawnSurface(in workingDirectory: String?) {
         guard let app = GhosttyRuntime.shared.app else { return }
-        let surface = GhosttySurfaceView(frame: view.bounds, app: app)
+        let surface = GhosttySurfaceView(frame: view.bounds, app: app, workingDirectory: workingDirectory)
         guard surface.surface != nil else { return }
         surface.autoresizingMask = [.width, .height]
         // These requests arrive from inside libghostty's own event processing,
@@ -77,19 +86,23 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
         surface.onCloseRequest = { [weak self] in
             DispatchQueue.main.async { self?.onCloseRequest?() }
         }
+        surface.onWorkingDirectoryChange = { [weak self] in
+            DispatchQueue.main.async { self?.onWorkingDirectoryChange?() }
+        }
         view.addSubview(surface)
         surfaceView = surface
         surface.setVisible(revealed)
         if revealed { view.window?.makeFirstResponder(surface) }
     }
 
-    /// Replaces an exited shell with a fresh one in the same tab.
+    /// Replaces an exited shell with a fresh one in the same tab, back in
+    /// the home directory.
     func respawn() {
         guard let old = surfaceView else { return }
         old.close()
         old.removeFromSuperview()
         surfaceView = nil
-        spawnSurface()
+        spawnSurface(in: nil)
     }
 
     /// Ends the shell and takes the terminal out of the panel for good.

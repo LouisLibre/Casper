@@ -15,7 +15,8 @@
 //    - ⌘Q                                        -> quit (after confirming), from any pane
 //    - ⌘M                                        -> same as the collapse button in the corner
 //    - ⌘P                                        -> same as the pin button in the corner
-//    - ⌘T or the plus in the dock                -> open another terminal tab, from settings too
+//    - ⌘T or the plus in the dock                -> open another terminal tab in the active
+//                                                   tab's directory, from settings too
 //    - ⌘W                                        -> same as the close button in the corner
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab, from settings too
 //    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around; terminal only
@@ -67,14 +68,15 @@ final class AppRootController: ObservableObject {
     private static let sizeStepKey = "expandedSizeStep"
 
     /// What the last run had on screen, so the next launch picks up there:
-    /// how many terminals were open, which one was active, and whether the
-    /// settings pane was up over it. Written on every change.
-    private static let terminalCountKey = "terminalCount"
+    /// each open terminal's directory in dock order, which one was active,
+    /// and whether the settings pane was up over it. Written on every
+    /// change, including every `cd` the shell reports.
+    private static let terminalDirectoriesKey = "terminalDirectories"
     private static let activeTerminalIndexKey = "activeTerminalIndex"
     private static let showingSettingsKey = "showingSettings"
-    private var savedTerminalCount: Int {
-        get { UserDefaults.standard.integer(forKey: Self.terminalCountKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.terminalCountKey) }
+    private var savedTerminalDirectories: [String] {
+        get { UserDefaults.standard.stringArray(forKey: Self.terminalDirectoriesKey) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.terminalDirectoriesKey) }
     }
     private var savedActiveTerminalIndex: Int {
         get { UserDefaults.standard.integer(forKey: Self.activeTerminalIndexKey) }
@@ -132,9 +134,10 @@ final class AppRootController: ObservableObject {
 
     // MARK: - Terminals
 
-    /// ⌘T and the dock's plus: opens another terminal and switches to it.
+    /// ⌘T and the dock's plus: opens another terminal in the active one's
+    /// directory and switches to it.
     func newTerminal() {
-        activate(addTerminal())
+        activate(addTerminal(in: activeTerminal?.inheritedWorkingDirectory))
     }
 
     /// Shows a terminal, leaving the settings pane if it was up, and gives it
@@ -146,6 +149,11 @@ final class AppRootController: ObservableObject {
         isShowingSettings = false
         saveActivePane()
         switchPane(from: previous)
+    }
+
+    /// Remembers every terminal's directory, in dock order, for the next launch.
+    private func saveTerminals() {
+        savedTerminalDirectories = terminals.compactMap { $0.workingDirectory }
     }
 
     /// Remembers the active tab and whether settings is up for the next launch.
@@ -191,11 +199,13 @@ final class AppRootController: ObservableObject {
         panel?.makeFirstResponder(activePane?.inputView)
     }
 
+    /// Opens a terminal in `workingDirectory`, or the home directory when nil.
     @discardableResult
-    private func addTerminal() -> NotchTerminalScreen {
+    private func addTerminal(in workingDirectory: String?) -> NotchTerminalScreen {
         let terminal = NotchTerminalScreen()
         terminal.onNewTabRequest = { [weak self] in self?.newTerminal() }
         terminal.onGoToTabRequest = { [weak self] destination in self?.goToTab(destination) }
+        terminal.onWorkingDirectoryChange = { [weak self] in self?.saveTerminals() }
         terminal.onCloseRequest = { [weak self, weak terminal] in
             guard let self, let terminal else { return }
             self.closeRequested(by: terminal)
@@ -206,8 +216,8 @@ final class AppRootController: ObservableObject {
             container.addSubview(terminal.view, positioned: .below, relativeTo: pill)
         }
         terminals.append(terminal)
-        savedTerminalCount = terminals.count
-        terminal.startShellIfNeeded()
+        terminal.startShellIfNeeded(in: workingDirectory)
+        saveTerminals()
         return terminal
     }
 
@@ -254,7 +264,7 @@ final class AppRootController: ObservableObject {
         // Switch the live pane immediately. The dock keeps the outgoing
         // icon's presentation slot long enough to fade before closing the gap.
         terminals.remove(at: index)
-        savedTerminalCount = terminals.count
+        saveTerminals()
         if terminal === activeTerminal {
             // The tab to its right takes over, or the new last tab when it was rightmost.
             let next = terminals[min(index, terminals.count - 1)]
@@ -357,10 +367,16 @@ final class AppRootController: ObservableObject {
 
     func start() {
         rebuildPanel()
-        // Reopen as many tabs as the last run had, and at least one, and
-        // start on the pane it ended on: its tab, with settings over it if
-        // that was up. Nothing saved yet means the first tab.
-        for _ in 0..<max(savedTerminalCount, 1) { addTerminal() }
+        // Reopen the last run's tabs, each in the directory its shell was
+        // in, and start on the pane it ended on: its tab, with settings over
+        // it if that was up. Nothing saved yet means one tab in the home
+        // directory.
+        let directories = savedTerminalDirectories
+        if directories.isEmpty {
+            addTerminal(in: nil)
+        } else {
+            for directory in directories { addTerminal(in: directory) }
+        }
         activeTerminal = terminals[min(max(savedActiveTerminalIndex, 0), terminals.count - 1)]
         isShowingSettings = savedIsShowingSettings
 

@@ -312,6 +312,11 @@ final class GhosttyRuntime {
                 request(destination)
                 return true
 
+            case GHOSTTY_ACTION_PWD:
+                guard let view = surfaceView(for: target), let pwd = action.action.pwd.pwd else { return false }
+                view.setWorkingDirectory(String(cString: pwd))
+                return true
+
             case GHOSTTY_ACTION_RING_BELL:
                 NSSound.beep()
                 return true

@@ -34,6 +34,14 @@ final class GhosttySurfaceView: NSView {
     /// One of Ghostty's goto_tab bindings (⌘1–⌘9, next and previous tab)
     /// fired while this surface had focus. Called like `onNewTabRequest`.
     var onGoToTabRequest: ((TabDestination) -> Void)?
+    /// The shell changed directory; see `workingDirectory`. Called like
+    /// `onNewTabRequest`.
+    var onWorkingDirectoryChange: (() -> Void)?
+
+    /// The shell's directory: where it started, then whatever it last
+    /// reported through shell integration (OSC 7 at every prompt). A shell
+    /// without integration never reports, so this stays at the start.
+    private(set) var workingDirectory: String
 
     /// Whether a process is still running in the shell, by Ghostty's own
     /// close rules (its `confirm-close-surface` setting).
@@ -57,7 +65,11 @@ final class GhosttySurfaceView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    init(frame: NSRect, app: ghostty_app_t) {
+    /// Starts the shell in `workingDirectory`, or in the home directory when
+    /// that is nil or no longer exists.
+    init(frame: NSRect, app: ghostty_app_t, workingDirectory: String?) {
+        self.workingDirectory = Self.existingDirectory(workingDirectory)
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
         super.init(frame: frame)
 
         var config = ghostty_surface_config_new()
@@ -68,8 +80,7 @@ final class GhosttySurfaceView: NSView {
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 1)
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         // libghostty copies the strings it needs while creating the surface.
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        surface = home.withCString { directory in
+        surface = self.workingDirectory.withCString { directory in
             config.working_directory = directory
             return ghostty_surface_new(app, &config)
         }
@@ -117,6 +128,33 @@ final class GhosttySurfaceView: NSView {
         guard let surface else { return }
         self.surface = nil
         ghostty_surface_free(surface)
+    }
+
+    // MARK: - Working directory
+
+    /// nil unless `path` names a directory that still exists.
+    private static func existingDirectory(_ path: String?) -> String? {
+        guard let path else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        return path
+    }
+
+    /// The shell reported a new directory.
+    func setWorkingDirectory(_ directory: String) {
+        workingDirectory = directory
+        onWorkingDirectoryChange?()
+    }
+
+    /// Where a tab opened from this one should start, by Ghostty's own
+    /// rules: the shell's current directory, or nil when the user turned
+    /// `tab-inherit-working-directory` off or the shell never reported one.
+    var inheritedWorkingDirectory: String? {
+        guard let surface else { return nil }
+        let config = ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB)
+        guard let directory = config.working_directory else { return nil }
+        return String(cString: directory)
     }
 
     /// libghostty installs its render layer marked opaque regardless of
