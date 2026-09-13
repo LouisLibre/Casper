@@ -145,12 +145,9 @@ final class GhosttyRuntime {
     ///
     ///   1. libghostty's built-in defaults, filled in by finalize.
     ///   2. `defaults.ghostty` in the app bundle: Casper's own opinions.
-    ///   3. The user's Ghostty files: ~/.config/ghostty/config and
-    ///      config.ghostty, then their Application Support copies. This is
-    ///      what makes the notch match Ghostty.app.
-    ///   4. ~/.config/casper/config.ghostty: overrides that apply to the
-    ///      notch only. Created on first ⌘,.
-    ///   5. `config-file` includes named by any of the above.
+    ///   3. ~/.config/casper/config.ghostty: the user's Casper settings,
+    ///      copied from the bundled defaults on first ⌘,.
+    ///   4. Explicit `config-file` includes named by either file.
     private static func loadConfig() -> ghostty_config_t? {
         guard let config = ghostty_config_new() else {
             logger.critical("ghostty_config_new failed")
@@ -161,7 +158,6 @@ final class GhosttyRuntime {
         } else {
             logger.error("defaults.ghostty missing from the app bundle")
         }
-        ghostty_config_load_default_files(config)
         if FileManager.default.fileExists(atPath: userConfigURL.path) {
             ghostty_config_load_file(config, userConfigURL.path)
         }
@@ -180,31 +176,15 @@ final class GhosttyRuntime {
         Bundle.main.url(forResource: "defaults", withExtension: "ghostty")
     }
 
-    /// Always ~/.config/casper/config.ghostty. Ghostty's own files honor
-    /// XDG_CONFIG_HOME; this one deliberately does not, so the notch's
-    /// settings live in one predictable place regardless of what launched
-    /// the app.
+    /// Always ~/.config/casper/config.ghostty, independent of XDG_CONFIG_HOME,
+    /// so Casper's settings live in one predictable place regardless of
+    /// what launched the app.
     static var userConfigURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("casper", isDirectory: true)
             .appendingPathComponent("config.ghostty")
     }
-
-    private static let userConfigTemplate = """
-    # Casper terminal settings.
-    #
-    # Loaded after your Ghostty config (~/.config/ghostty/config), so anything
-    # set here applies to the notch only and wins over Ghostty.app's settings.
-    # Keys are Ghostty's: https://ghostty.org/docs/config/reference
-    # Reload with ⌘⇧, while the notch has focus. Fonts and colors apply right
-    # away; padding and other layout settings apply to the next shell (`exit`).
-    #
-    # font-size = 12
-    # theme = catppuccin-mocha
-    # window-padding-x = 4
-
-    """
 
     /// Re-reads the configuration files and applies the result to the app and
     /// every surface. Bound to ⌘⇧, by default.
@@ -224,15 +204,19 @@ final class GhosttyRuntime {
     }
 
     /// ⌘, (and the settings pane's button) opens Casper's override file in
-    /// the user's editor, creating it with a commented template the first time.
+    /// the user's editor, copying the bundled defaults there the first time.
     @discardableResult
     static func openUserConfig() -> Bool {
         let url = userConfigURL
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: url.path) {
+            guard let defaults = bundledDefaultsURL else {
+                logger.error("cannot create \(url.path): defaults.ghostty missing from the app bundle")
+                return false
+            }
             do {
                 try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try userConfigTemplate.write(to: url, atomically: true, encoding: .utf8)
+                try fileManager.copyItem(at: defaults, to: url)
             } catch {
                 logger.error("could not create \(url.path): \(error)")
                 return false

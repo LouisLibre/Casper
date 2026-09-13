@@ -88,7 +88,7 @@ struct NotchSettingsPane: View {
                 }
 
                 SettingsRow(title: "Terminal configuration",
-                            detail: "Ghostty settings for the notch, in \(Self.configPath).") {
+                            detail: "Terminal settings in \(Self.configPath).") {
                     Button("Open in Editor") {
                         GhosttyRuntime.openUserConfig()
                     }

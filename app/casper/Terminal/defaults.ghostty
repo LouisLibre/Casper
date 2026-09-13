@@ -1,7 +1,10 @@
-# Casper's own terminal defaults. This is the lowest layer of the
-# configuration cascade, loaded before the user's Ghostty config, so anything
-# here can be overridden from ~/.config/ghostty/config or, for the notch
-# only, from ~/.config/casper/config.ghostty.
+# Casper terminal settings.
+#
+# The bundled copy supplies the defaults. ~/.config/casper/config.ghostty
+# loads afterward and takes precedence. The first ⌘, creates that file by
+# copying these defaults, ready to edit.
+# Reload with ⌘⇧, while the notch has focus. Fonts and colors apply right
+# away; padding and other layout settings apply to the next shell (`exit`).
 #
 # Keys are Ghostty's: https://ghostty.org/docs/config/reference
 theme = Dark Pastel
@@ -11,10 +14,12 @@ window-padding-balance = true
 window-padding-color = extend
 # The notch body is liquid glass and supplies the terminal's darkness, so the
 # surface renders with no background of its own. Anything above 0 shows a
-# faint frame where the glass margin meets the terminal. Cell backgrounds
-# (selections, TUI panes) stay solid so they remain readable.
+# faint frame where the glass margin meets the terminal. Keep explicit cell
+# backgrounds (including highlights drawn by TUIs) solid. This is a boolean:
+# true/1 applies background-opacity to those cells too, making them invisible
+# at opacity 0. Ghostty's own text selection is always opaque either way.
 background-opacity = 0
-background-opacity-cells = 1
+background-opacity-cells = false
 # Ghostty binds ⌘9 to the last tab and ⌘0 to resetting the font size. The
 # dock numbers the first ten tabs and shows those numbers while ⌘ is held,
 # so here ⌘9 is the ninth tab and ⌘0 the tenth, bound both ways Ghostty
