@@ -82,6 +82,11 @@ enum ExpandedSizeLadder {
     static let baseWidth: CGFloat = 640
     /// 80 wide is 60 tall at 4:3, so every rung lands on whole points.
     static let widthStep: CGFloat = 80
+    /// 60: how far the bottom edge moves per rung.
+    static var heightStep: CGFloat { (widthStep / aspect).rounded() }
+    /// 40: how far each side edge moves per rung. The shape stays centered,
+    /// so the width step is split between the two sides.
+    static var sideStep: CGFloat { widthStep / 2 }
     /// 480x360. Below this an 80-column terminal wraps at the default font.
     static let minStep = -2
     /// Ceiling for the search in `maxExpandedStep`; screens clamp well before it.

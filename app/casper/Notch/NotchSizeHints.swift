@@ -77,7 +77,8 @@ struct NotchSizeHints: View {
 
 /// Hosts the size hints above the panes, on the bottom-right corner of
 /// the expanded shape. Nothing in it takes clicks: what is under the
-/// shrink hint is the pane, and under the grow hint nothing of ours.
+/// shrink hint is the pane and the resize handle along the shape's edge,
+/// and under the grow hint nothing of ours.
 final class NotchSizeHintsHost: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

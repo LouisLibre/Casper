@@ -25,6 +25,9 @@
 //                                                   the switcher leaves the notch open
 //    - Show in Dock, in settings                  -> the Dock icon and, with it, the ⌘Tab entry
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
+//    - drag the bottom edge or a bottom corner    -> step the expanded size along with the
+//                                                   pointer: down or out for bigger, back
+//                                                   for smaller
 //    - ⌘Q                                        -> quit (after confirming), from any pane
 //    - ⌘M                                        -> same as the collapse button in the corner
 //    - ⌘P                                        -> same as the pin button in the corner
@@ -130,6 +133,7 @@ final class AppRootController: ObservableObject {
     private var settingsScreen: NotchSettingsScreen?
     private var cornerControls: NotchCornerControlsHost?
     private var sizeHints: NotchSizeHintsHost?
+    private var resizeHandle: NotchResizeHandle?
 
     /// What the expanded shape shows: the settings pane when selected,
     /// otherwise the active terminal.
@@ -159,12 +163,22 @@ final class AppRootController: ObservableObject {
 
     // MARK: - Expanded size
 
+    /// The rung the shape is on: the saved step, clamped to the current screen.
+    private var currentSizeStep: Int { clampedSizeStep(sizeStep) }
+
     /// Moves the expanded size one rung up or down the ladder. Stops at the
     /// ladder's floor and at the largest rung the current screen can hold.
     func adjustExpandedSize(by delta: Int) {
-        let current = clampedSizeStep(sizeStep)
-        let next = clampedSizeStep(current + delta)
-        guard next != current else { return }
+        setExpandedSizeStep(currentSizeStep + delta)
+    }
+
+    /// Puts the expanded size on `step`, or on the nearest rung between the
+    /// ladder's floor and the largest the current screen can hold. Where a
+    /// drag on the shape's bottom edge or a bottom corner lands (see
+    /// NotchResizeHandle), and the size shortcuts too.
+    func setExpandedSizeStep(_ step: Int) {
+        let next = clampedSizeStep(step)
+        guard next != currentSizeStep else { return }
         sizeStep = next
         applyExpandedSize()
         layoutPanel()
@@ -600,6 +614,7 @@ final class AppRootController: ObservableObject {
 
         pill?.setIconVisible(!expanded, animated: true)
         band?.isHidden = !expanded
+        resizeHandle?.isHidden = !expanded
         if expanded {
             // An explicit click or chord takes precedence over startup.
             // A later activation callback must not hand this request back.
@@ -813,6 +828,17 @@ final class AppRootController: ObservableObject {
         container.addSubview(settings.view, positioned: .below, relativeTo: pill)
         settingsScreen = settings
 
+        // Drag target for resizing by hand, along the bottom of the
+        // expanded shape in the margin outside the pane. Above the panes
+        // (the terminals come in below the pill), though its zones never
+        // reach them. Hidden while collapsed.
+        let handle = NotchResizeHandle(frame: resizeHandleFrame(in: frame))
+        handle.isHidden = true
+        handle.currentStep = { [weak self] in self?.currentSizeStep ?? 0 }
+        handle.onDrag = { [weak self] step in self?.setExpandedSizeStep(step) }
+        container.addSubview(handle)
+        resizeHandle = handle
+
         // Collapse and close, in the band at the top right of the expanded
         // shape. Their key hints hang under the band, over the pane, so
         // they live above every pane: last in, and the terminals come in
@@ -857,6 +883,7 @@ final class AppRootController: ObservableObject {
         cornerControls?.bandHeight = collapsedSize.height
         cornerControls?.frame = cornerControlsFrame(in: frame)
         sizeHints?.frame = sizeHintsFrame(in: frame)
+        resizeHandle?.frame = resizeHandleFrame(in: frame)
     }
 
     private func pillFrame(in panelFrame: NSRect) -> NSRect {
@@ -877,6 +904,11 @@ final class AppRootController: ObservableObject {
                       height: collapsedSize.height)
     }
 
+    /// Margin between the expanded shape's sides and bottom and the pane,
+    /// clear of the shape's rounded corners. The resize handle lives in it
+    /// (see NotchResizeHandle).
+    static let paneInset: CGFloat = 7
+
     /// Every pane (terminals and settings) shares this frame inside the shape.
     private func paneFrame(in panelFrame: NSRect) -> NSRect {
         /// inset to match the expanded shape's rounded corners.
@@ -885,10 +917,22 @@ final class AppRootController: ObservableObject {
         let sideMargin = (panelFrame.width - expandedSize.width) / 2
         /// The shape sits at the top of the panel; the band below it belongs to the dock.
         let shapeBottom = panelFrame.height - expandedSize.height
-        return NSRect(x: sideMargin + 7,
-                      y: shapeBottom + 7,
-                      width: expandedSize.width - 14,
-                      height: expandedSize.height - topInset - 7)
+        let inset = Self.paneInset
+        return NSRect(x: sideMargin + inset,
+                      y: shapeBottom + inset,
+                      width: expandedSize.width - inset * 2,
+                      height: expandedSize.height - topInset - inset)
+    }
+
+    /// Along the bottom of the expanded shape, as wide as the shape and as
+    /// tall as the corner zones reach up its sides.
+    private func resizeHandleFrame(in panelFrame: NSRect) -> NSRect {
+        let sideMargin = (panelFrame.width - expandedSize.width) / 2
+        let shapeBottom = panelFrame.height - expandedSize.height
+        return NSRect(x: sideMargin,
+                      y: shapeBottom,
+                      width: expandedSize.width,
+                      height: NotchResizeHandle.cornerReach)
     }
 
     /// Top-right corner of the expanded shape: the band the corner controls
