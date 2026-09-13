@@ -34,7 +34,8 @@
 //    - drag a tab along the dock                 -> move it there; the ⌘ numbers follow
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab, from settings too
 //    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around; terminal only
-//    - ⌘ held                                    -> the dock and the corner controls show each control's key
+//    - ⌘ held                                    -> the dock and the corner controls show each control's key,
+//                                                   and the shape's bottom-right corner its size keys
 //    - ⌘S or the settings button in the dock     -> settings pane in place of the terminal
 //    - quit button in the corner                 -> same as ⌘Q
 //
@@ -116,6 +117,7 @@ final class AppRootController: ObservableObject {
     private var body: NotchPanelBody?
     private var settingsScreen: NotchSettingsScreen?
     private var cornerControls: NotchCornerControlsHost?
+    private var sizeHints: NotchSizeHintsHost?
 
     /// What the expanded shape shows: the settings pane when selected,
     /// otherwise the active terminal.
@@ -718,8 +720,9 @@ final class AppRootController: ObservableObject {
 
         // Fixed frame, big enough for the expanded state and the dock below
         // it. Collapsed just means most of the panel is transparent and
-        // doesn't hit-test. Slightly wider than the expanded shape so its top
-        // "ears" aren't clipped by the window.
+        // doesn't hit-test. Wider than the expanded shape so its top "ears"
+        // and the grow hint past its bottom-right corner aren't clipped by
+        // the window.
         let frame = geometry.frame(for: panelSize)
         let panel = NotchPanel(contentRect: frame)
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
@@ -796,6 +799,16 @@ final class AppRootController: ObservableObject {
         container.addSubview(corner)
         cornerControls = corner
 
+        // The size shortcuts' hints, on the bottom-right corner of the
+        // expanded shape. The shrink hint lies over the pane, so this host
+        // goes above every pane too.
+        let hints = NotchSizeHintsHost(rootView: AnyView(NotchSizeHints().environmentObject(self)))
+        hints.sizingOptions = []
+        hints.safeAreaRegions = []
+        hints.frame = sizeHintsFrame(in: frame)
+        container.addSubview(hints)
+        sizeHints = hints
+
         panel.contentView = container
         panel.acceptsMouseMovedEvents = true
         panel.orderFrontRegardless()
@@ -817,6 +830,7 @@ final class AppRootController: ObservableObject {
         settingsScreen?.view.frame = paneFrame(in: frame)
         cornerControls?.bandHeight = collapsedSize.height
         cornerControls?.frame = cornerControlsFrame(in: frame)
+        sizeHints?.frame = sizeHintsFrame(in: frame)
     }
 
     private func pillFrame(in panelFrame: NSRect) -> NSRect {
@@ -860,6 +874,18 @@ final class AppRootController: ObservableObject {
                       y: panelFrame.height - height,
                       width: NotchCornerControls.width,
                       height: height)
+    }
+
+    /// A square centered on the bottom-right corner of the expanded shape:
+    /// the shrink hint in the quarter inside the shape, the grow hint in
+    /// the quarter outside it, past the corner.
+    private func sizeHintsFrame(in panelFrame: NSRect) -> NSRect {
+        let sideMargin = (panelFrame.width - expandedSize.width) / 2
+        let shapeBottom = panelFrame.height - expandedSize.height
+        return NSRect(x: sideMargin + expandedSize.width - NotchSizeHints.reach,
+                      y: shapeBottom - NotchSizeHints.reach,
+                      width: NotchSizeHints.reach * 2,
+                      height: NotchSizeHints.reach * 2)
     }
 
     // Display connected/disconnected or resolution changed — the notch may have moved or vanished.

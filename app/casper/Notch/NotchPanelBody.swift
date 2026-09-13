@@ -9,6 +9,9 @@ struct NotchPanelBody: View {
 
     static let borderColor = Color.white.opacity(0.3)
     static let borderWidth: CGFloat = 1
+    /// Radius of the expanded shape's bottom corners. The size hints sit
+    /// on the bottom-right one (see NotchSizeHints).
+    static let expandedBottomCornerRadius: CGFloat = 22
 
     /// The backdrop is darkened by a vertical black gradient: fully opaque over
     /// the band where the menu bar and hardware notch sit behind the panel,
@@ -45,7 +48,7 @@ struct NotchPanelBody: View {
     var body: some View {
         let size = controller.isExpanded ? controller.expandedSize : collapsedShapeSize
         let topRadius: CGFloat = controller.isExpanded ? NotchShape.maxTopCornerRadius : 10
-        let bottomRadius: CGFloat = controller.isExpanded ? 22 : 12
+        let bottomRadius: CGFloat = controller.isExpanded ? Self.expandedBottomCornerRadius : 12
         let shape = NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius)
 
         ZStack(alignment: .top) {

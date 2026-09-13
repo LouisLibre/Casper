@@ -50,10 +50,14 @@ struct AppGeometryReader {
                height: size.height)
     }
 
-    /// The panel is the expanded shape plus slack for its ears on each side
-    /// and the band under it that holds the dock.
+    /// Slack on each side of the expanded shape: room for its ears, and
+    /// past its bottom-right corner for the grow hint (see NotchSizeHints).
+    static let sideSlack = max(NotchShape.maxTopCornerRadius, NotchSizeHints.reach)
+
+    /// The panel is the expanded shape plus the slack on each side and the
+    /// band under it that holds the dock.
     static func panelSize(forExpanded size: CGSize) -> CGSize {
-        CGSize(width: size.width + NotchShape.maxTopCornerRadius * 2,
+        CGSize(width: size.width + sideSlack * 2,
                height: size.height + NotchDock.reserve)
     }
 
