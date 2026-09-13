@@ -24,6 +24,7 @@
 //                                                   only one (after confirming)
 //    - right click on a tab in the dock          -> menu: Finder at that tab's directory,
 //                                                   or close it, as ⌘W would
+//    - drag a tab along the dock                 -> move it there; the ⌘ numbers follow
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab, from settings too
 //    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around; terminal only
 //    - ⌘ held                                    -> the dock and the corner controls show each control's key
@@ -291,6 +292,18 @@ final class AppRootController: ObservableObject {
         // Closing a tab to the left of the active one shifts its index too.
         saveActivePane()
         terminal.close()
+    }
+
+    /// A tab dragged along the dock: puts `terminal` at `index` in the row.
+    /// The ⌘ numbers follow the new order, and so does the saved one.
+    func move(_ terminal: NotchTerminalScreen, to index: Int) {
+        guard let from = terminals.firstIndex(where: { $0 === terminal }), from != index else { return }
+        var reordered = terminals
+        reordered.remove(at: from)
+        reordered.insert(terminal, at: index)
+        terminals = reordered
+        saveTerminals()
+        saveActivePane()
     }
 
     /// The dock's context menu: a Finder window at the terminal's directory,

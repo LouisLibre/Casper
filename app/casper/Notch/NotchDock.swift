@@ -10,7 +10,9 @@
 //  a click on the slot scrolls the row a step further that way. Stepping the
 //  shape with ⌘⇧+ / ⌘⇧- widens or narrows the room for tabs along with it.
 //  A right click on a tab brings up a menu: a Finder window at that
-//  terminal's directory, or closing the tab.
+//  terminal's directory, or closing the tab. Dragging a tab along the row
+//  moves it there: the others slide out of its way, and the ⌘ numbers
+//  follow the new order.
 //  After ⌘ is held briefly every control with a shortcut gets a small ⌘ badge over
 //  the corner of its icon: the first nine tabs their number (⌘1 to ⌘9), the
 //  tenth a 0 (⌘0), the plus a T (⌘T) and settings an S (⌘S). ⌘[ and ⌘]
@@ -94,7 +96,7 @@ struct NotchDock: View {
                     // with the tabs, so the chevron slots can fill the capsule's corners.
                     TabStrip(tabIDs: tabIDs, closingTabs: closingTabs,
                              width: stripWidth, rowWidth: rowWidth, showsKeyHints: showsTabKeyHints,
-                             scrollX: $rowScrollX)
+                             scrollX: $rowScrollX, onMove: moveTab)
                 }
                 // Settings, selected while its pane is up in place of the terminal. Same as ⌘S.
                 // Its badge stays on while the pane is up, like the tabs', so
@@ -151,6 +153,20 @@ struct NotchDock: View {
         }
     }
 
+    /// A tab dropped after a drag: puts it at `index` in the row, and its
+    /// terminal at the same place in the controller's order. Both change in
+    /// the same transaction, so the tab settles straight into its new slot.
+    /// The controller's order has no fading slots in it.
+    private func moveTab(_ id: UUID, to index: Int) {
+        guard let from = presentedTabs.firstIndex(of: id) else { return }
+        presentedTabs.remove(at: from)
+        presentedTabs.insert(id, at: index)
+        let live = presentedTabs.filter { !closingTabs.contains($0) }
+        guard let terminal = controller.terminals.first(where: { $0.id == id }),
+              let liveIndex = live.firstIndex(of: id) else { return }
+        controller.move(terminal, to: liveIndex)
+    }
+
     /// ⌘ has been held long enough. The tabs and the plus wear their badges from every pane:
     /// ⌘1 to ⌘9, ⌘0 and ⌘T reach a terminal as Ghostty's own bindings, and
     /// from the settings pane the panel takes them itself.
@@ -205,7 +221,9 @@ struct NotchDock: View {
     /// they outgrow `width`. An end with more of the row scrolled out past it
     /// gets a solid slot holding a chevron that points that way; clicking it
     /// scrolls a step further. The active tab is kept clear of the slots:
-    /// when it changes, and when the strip resizes.
+    /// when it changes, and when the strip resizes. A tab pulled sideways
+    /// comes along under the pointer, the others close up around the slot
+    /// it is over, and letting go drops it there.
     private struct TabStrip: View {
         @EnvironmentObject private var controller: AppRootController
         let tabIDs: [UUID]
@@ -216,6 +234,35 @@ struct NotchDock: View {
         let showsKeyHints: Bool
         /// How far the row is scrolled, for the dock to place the ⌘W badge.
         @Binding var scrollX: CGFloat
+        /// A tab was dropped: which one, and the slot it should take.
+        let onMove: (UUID, Int) -> Void
+
+        /// The tab under the pointer since it was picked up, if any.
+        @State private var drag: TabDrag?
+        /// The tab picked up last. Drawn above the others, so it passes
+        /// over them while dragged and still settles into its slot on top.
+        @State private var raisedTab: UUID?
+
+        private struct TabDrag {
+            let id: UUID
+            /// How far the pointer has moved since picking the tab up, in
+            /// row coordinates.
+            let translation: CGFloat
+        }
+
+        /// What places a tab in the row, for the animation keyed on it: a
+        /// change of slot slides the tab there, and being dropped slides it
+        /// from under the pointer into its slot. Being picked up does not
+        /// animate, nor does the pointer carrying it across slots.
+        private struct Placement: Equatable {
+            let slot: Int
+            let isDragged: Bool
+        }
+
+        /// How far the pointer must move before a press on a tab becomes a
+        /// drag rather than a click.
+        private static let dragStart: CGFloat = 4
+        private static let rowSpace = "tabRow"
 
         /// Whether the row is wider than the strip. From the layout math, not
         /// the scroll geometry: the capsule animates its growth when a tab
@@ -274,6 +321,7 @@ struct NotchDock: View {
                     let terminal = controller.terminals.first { $0.id == id }
                     let isClosing = closingTabs.contains(id)
                     let isActive = !controller.isShowingSettings && id == controller.activeTerminal?.id
+                    let isDragged = drag?.id == id
                     let number = (controller.terminals.firstIndex { $0.id == id } ?? index) + 1
                     DockButton(symbol: "apple.terminal", label: "Terminal \(number)",
                                keyHint: showsKeyHints ? NotchDock.keyHint(forTab: number) : nil,
@@ -287,14 +335,23 @@ struct NotchDock: View {
                             TabMenu(terminal: terminal)
                         }
                     }
+                    // Alongside the button's own click, which a drag never
+                    // becomes: the pull has to pass `dragStart` first.
+                    .simultaneousGesture(dragGesture(for: id))
+                    // Lifted a little while carried.
+                    .scaleEffect(isDragged ? 1.08 : 1)
+                    .animation(.easeOut(duration: 0.12), value: isDragged)
                     .opacity(isClosing ? 0 : 1)
                     .animation(.easeOut(duration: NotchDock.tabFadeDuration), value: isClosing)
                     .allowsHitTesting(!isClosing)
                     .accessibilityHidden(isClosing)
                     // Explicit slots never compress to accommodate an outgoing
                     // view. Removal happens only once it is fully transparent.
-                    .offset(x: NotchDock.capsuleEndPadding + NotchDock.slot * CGFloat(index))
+                    .offset(x: tabX(id, at: index))
+                    .animation(isDragged ? nil : NotchDock.tabChange,
+                               value: Placement(slot: slotOrder.firstIndex(of: id) ?? index, isDragged: isDragged))
                     .transition(.asymmetric(insertion: .opacity, removal: .identity))
+                    .zIndex(id == raisedTab ? 1 : 0)
                 }
                 // Same as ⌘T. Last in the row, so it scrolls with the tabs.
                 DockButton(symbol: "plus", label: "New Terminal",
@@ -309,6 +366,75 @@ struct NotchDock: View {
             // remains a single view, moving with the row's trailing edge.
             .frame(maxWidth: .infinity, minHeight: NotchDock.height, alignment: .leading)
             .animation(NotchDock.tabChange, value: tabIDs)
+            // Drags are measured here, so a tab stays under the pointer even
+            // if the row scrolls while it is carried.
+            .coordinateSpace(.named(Self.rowSpace))
+        }
+
+        // MARK: Dragging a tab
+
+        /// Picks the tab up once the pointer has pulled it `dragStart`, so a
+        /// click stays a click, and carries it until the button comes up.
+        /// Picking a tab up selects it, as pressing one does.
+        private func dragGesture(for id: UUID) -> some Gesture {
+            DragGesture(minimumDistance: Self.dragStart, coordinateSpace: .named(Self.rowSpace))
+                .onChanged { value in
+                    if drag == nil, let terminal = controller.terminals.first(where: { $0.id == id }) {
+                        raisedTab = id
+                        controller.activate(terminal)
+                    }
+                    drag = TabDrag(id: id, translation: value.translation.width)
+                }
+                .onEnded { _ in drop() }
+        }
+
+        /// Puts the dragged tab down in the slot it is over. The press landed
+        /// in the SwiftUI body, so the terminal gets the keyboard back.
+        private func drop() {
+            guard let drag else { return }
+            let from = tabIDs.firstIndex(of: drag.id) ?? 0
+            let to = slot(for: drag)
+            self.drag = nil
+            if to != from { onMove(drag.id, to) }
+            controller.focusActivePane()
+        }
+
+        /// Where the tab at `index` is drawn, from the row's leading end.
+        /// While one is dragged it rides under the pointer, and the others
+        /// close up around the slot it is over.
+        private func tabX(_ id: UUID, at index: Int) -> CGFloat {
+            let x: CGFloat
+            if let drag, drag.id == id {
+                x = draggedX(for: drag)
+            } else {
+                x = NotchDock.slot * CGFloat(slotOrder.firstIndex(of: id) ?? index)
+            }
+            return NotchDock.capsuleEndPadding + x
+        }
+
+        /// Where the dragged tab is, from the first slot: as far as the
+        /// pointer has carried it, but never before the first slot or past
+        /// the last tab's, so it cannot pass the plus.
+        private func draggedX(for drag: TabDrag) -> CGFloat {
+            let from = tabIDs.firstIndex(of: drag.id) ?? 0
+            let x = NotchDock.slot * CGFloat(from) + drag.translation
+            return min(max(x, 0), NotchDock.slot * CGFloat(tabIDs.count - 1))
+        }
+
+        /// The slot the dragged tab is nearest to.
+        private func slot(for drag: TabDrag) -> Int {
+            Int((draggedX(for: drag) / NotchDock.slot).rounded())
+        }
+
+        /// The row as it will be on drop: the dragged tab in the slot it is
+        /// over and the others closed up around it. The row as it is while
+        /// nothing is dragged.
+        private var slotOrder: [UUID] {
+            guard let drag, let from = tabIDs.firstIndex(of: drag.id) else { return tabIDs }
+            var order = tabIDs
+            order.remove(at: from)
+            order.insert(drag.id, at: slot(for: drag))
+            return order
         }
 
         /// Brings the active tab into the clear when it is scrolled out or
