@@ -12,9 +12,14 @@ struct NotchPanelBody: View {
 
     /// The backdrop is darkened by a vertical black gradient: fully opaque over
     /// the band where the menu bar and hardware notch sit behind the panel,
-    /// then easing out to the tint alone. The collapsed shape never grows
-    /// past that band, so the pill stays solid black without special-casing.
+    /// then easing out to the tint alone. The collapsed shape only grows a
+    /// few points past that band, under the pointer, where the fade has
+    /// barely begun, so the pill stays solid black without special-casing.
     static let fadeHeight: CGFloat = 56
+    /// How far the collapsed shape grows out each side and down while the
+    /// pointer is over the pill, a hint that the strip takes clicks. The top
+    /// edge is flush with the screen and stays put.
+    static let hoverGrowth: CGFloat = 6
     /// All of the terminal's darkness lives here: the surface itself renders
     /// with a fully transparent background (see defaults.ghostty), so the
     /// backdrop reads as one sheet with no inner frame around the terminal.
@@ -38,7 +43,7 @@ struct NotchPanelBody: View {
     static let vignetteReach: CGFloat = 1.1
 
     var body: some View {
-        let size = controller.isExpanded ? controller.expandedSize : controller.collapsedSize
+        let size = controller.isExpanded ? controller.expandedSize : collapsedShapeSize
         let topRadius: CGFloat = controller.isExpanded ? NotchShape.maxTopCornerRadius : 10
         let bottomRadius: CGFloat = controller.isExpanded ? 22 : 12
         let shape = NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius)
@@ -101,6 +106,20 @@ struct NotchPanelBody: View {
         // are animated closer to the leaves by `notchSized`; this covers
         // everything else (radii, gradients, opacity).
         .animation(NotchSpring.swiftUI(expanding: controller.isExpanded), value: controller.isExpanded)
+        // The hover swell is neither an expand nor a collapse, so it runs on
+        // its own spring. A value-keyed animation is needed: the scoped ones
+        // in `notchSized` do not fire on their own for a change of size.
+        .animation(NotchSpring.hover, value: controller.isPillHovered)
+    }
+
+    /// The collapsed shape, a little bigger under the pointer. The change
+    /// of size rides `NotchSpring.hover`.
+    private var collapsedShapeSize: CGSize {
+        var size = controller.collapsedSize
+        guard controller.isPillHovered else { return size }
+        size.width += Self.hoverGrowth * 2
+        size.height += Self.hoverGrowth
+        return size
     }
 
     /// Opaque down to `solid` points from the top, then a smoothstep fade over

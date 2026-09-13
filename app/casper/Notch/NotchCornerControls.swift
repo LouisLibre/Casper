@@ -28,8 +28,8 @@ struct NotchCornerControls: View {
     static let spacing: CGFloat = 8
     /// Height of the two capsules and the ghost, so the three read as one set.
     static let glyphHeight: CGFloat = 16
-    /// The capsules rest dim and go full under the pointer; the ghost does
-    /// the reverse.
+    /// The capsules rest dim and go full under the pointer. The mascot
+    /// keeps its opacity and looks the other way instead.
     static let dimOpacity = 0.44
     static let fullOpacity = 1.0
     
@@ -90,20 +90,20 @@ struct NotchCornerControls: View {
             CornerButton(label: controller.isPinned ? "Unpin to set auto-collapse on" : "Pin to set auto-collapse off",
                          keyHint: showsKeyHints ? "P" : nil,
                          hintPlacement: .leading, isLit: controller.isPinned,
-                         action: { controller.togglePinned() }) {
+                         action: { controller.togglePinned() }) { _ in
                 CornerCapsule(symbol: "pin.fill", text: "PIN", isOn: controller.isPinned)
             }
             CornerButton(label: "Quit Casper",
                          keyHint: showsKeyHints ? "Q" : nil,
-                         action: { controller.confirmQuit() }) {
+                         action: { controller.confirmQuit() }) { _ in
                 CornerCapsule(symbol: "command", text: "QUIT")
             }
             CornerButton(label: "Collapse",
                          keyHint: showsKeyHints ? "M" : nil,
                          chordHint: showsKeyHints ? ToggleChordMonitor.hint : nil,
-                         dimsOnHover: true,
-                         action: { controller.collapse() }) {
-                CollapseGlyph()
+                         dimsAtRest: false,
+                         action: { controller.collapse() }) { hovering in
+                CollapseMascot(hovering: hovering)
             }
         }
         // The buttons are centered in the band; the badges hang out under it.
@@ -122,18 +122,18 @@ struct NotchCornerControls: View {
     /// too.
     private var showsKeyHints: Bool { controller.showsShortcutHints }
 
-    /// The ghost from the collapsed strip, where a click expands the notch;
+    /// The mascot from the collapsed strip, where a click expands the notch;
     /// here it collapses it. The strip's purple, as tall as the capsules.
-    /// Full at rest, as on the strip; the button dims it under the pointer,
-    /// the reverse of the capsules.
-    private struct CollapseGlyph: View {
+    /// Looks right at rest and glances left under the pointer, on the same
+    /// spring as the strip's mascot. Its opacity never changes.
+    private struct CollapseMascot: View {
+        let hovering: Bool
+
         var body: some View {
-            Image(.menuBarIcon)
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(height: NotchCornerControls.glyphHeight)
-                .foregroundStyle(Color(nsColor: NotchPanelPill.glyphColor))
+            NotchGhostMascot(gaze: hovering ? -1 : 1)
+                .fill(Color(nsColor: NotchPanelPill.glyphColor), style: FillStyle(eoFill: true))
+                .frame(width: NotchCornerControls.glyphHeight, height: NotchCornerControls.glyphHeight)
+                .animation(NotchSpring.hover, value: hovering)
         }
     }
 
@@ -184,11 +184,13 @@ struct NotchCornerControls: View {
         /// Keeps the face at full opacity whether hovered or not, to show a
         /// state that is switched on. Off for buttons that only do something.
         var isLit = false
-        /// Full at rest and dim under the pointer, instead of the reverse.
-        var dimsOnHover = false
+        /// Dim at rest and full under the pointer. Off for the mascot, which
+        /// shows the pointer by looking the other way instead.
+        var dimsAtRest = true
         let action: () -> Void
-        /// What the button shows: a capsule, or the ghost.
-        @ViewBuilder let face: () -> Face
+        /// What the button shows: a capsule, or the mascot. Told whether the
+        /// pointer is over the button.
+        @ViewBuilder let face: (_ hovering: Bool) -> Face
 
         @State private var hovering = false
 
@@ -198,14 +200,13 @@ struct NotchCornerControls: View {
         }
 
         private var opacity: Double {
-            if isLit { return NotchCornerControls.fullOpacity }
-            let full = dimsOnHover ? !hovering : hovering
-            return full ? NotchCornerControls.fullOpacity : NotchCornerControls.dimOpacity
+            let dim = dimsAtRest && !isLit && !hovering
+            return dim ? NotchCornerControls.dimOpacity : NotchCornerControls.fullOpacity
         }
 
         var body: some View {
             Button(action: action) {
-                face()
+                face(hovering)
                     .opacity(opacity)
                     .contentShape(Capsule())
             }

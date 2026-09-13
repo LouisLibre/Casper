@@ -52,6 +52,12 @@ enum NotchSpring {
         swiftUI(axis: .vertical, expanding: expanding)
     }
 
+    /// The pill's hover swell: the strip grows a little under the pointer,
+    /// and the mascot in it looks right and grows too, all on this one
+    /// spring. The mascot in the corner glances on it as well. Soft, with
+    /// a hint of bounce at the end.
+    static let hover = Animation.spring(response: 0.4, dampingFraction: 0.7)
+
     /// The CA mask spring starts on the commit that schedules it, while SwiftUI
     /// samples its spring one display frame later — so an undelayed mask leads
     /// the shape and the terminal pokes out past the black edge on expand.

@@ -5,6 +5,8 @@
 //
 //  Interaction model:
 //    - click on the notch strip                  -> toggle
+//    - pointer over the notch strip              -> the strip swells a little, to show it takes clicks
+//    - click in the band, while expanded         -> collapse; the corner buttons take their clicks first
 //    - ⌃ + left ⌥ pressed together              -> toggle, from any app; the pane takes the keyboard on expand
 //    - left button released outside the panel    -> collapse. The press alone
 //      does not, so a drag that starts in another app can end on the terminal.
@@ -37,6 +39,9 @@ final class AppRootController: ObservableObject {
     /// While pinned, clicks outside the panel leave it expanded. The corner
     /// button and ⌘M still collapse it. Off at every launch.
     @Published private(set) var isPinned = false
+    /// The pointer is over the collapsed strip. The shape swells a little
+    /// while it is, to show the strip takes clicks.
+    @Published private(set) var isPillHovered = false
     /// Every open terminal, in dock order. Never empty once `start()` ran.
     @Published private(set) var terminals: [NotchTerminalScreen] = []
     /// The terminal on screen while expanded (unless settings is), highlighted in the dock.
@@ -92,6 +97,7 @@ final class AppRootController: ObservableObject {
 
     private var panel: NotchPanel?
     private var pill: NotchPanelPill?
+    private var band: NotchPanelBand?
     private var body: NotchPanelBody?
     private var settingsScreen: NotchSettingsScreen?
     private var cornerControls: NotchCornerControlsHost?
@@ -457,6 +463,7 @@ final class AppRootController: ObservableObject {
         let expandedShape = shapeRectInPaneSpace(for: expandedSize, of: pane)
 
         pill?.setIconVisible(!expanded, animated: true)
+        band?.isHidden = !expanded
         if expanded {
             pane.reveal(from: collapsedShape, to: expandedShape)
             panel.makeKeyAndOrderFront(nil)
@@ -536,18 +543,21 @@ final class AppRootController: ObservableObject {
         hosting.autoresizingMask = [.width, .height]
         container.addSubview(hosting)
 
+        // The band along the top of the expanded shape collapses on click,
+        // as the pill does. Under the pill and the corner controls, which
+        // take their own clicks first. Hidden while collapsed.
+        let band = NotchPanelBand(frame: bandFrame(in: frame))
+        band.isHidden = true
+        band.onClick = { [weak self] in self?.collapse() }
+        container.addSubview(band)
+        self.band = band
+
         // Pill hit-target view pinned over the place where the physical hardware notch is supposed to be.
         let pill = NotchPanelPill(frame: pillFrame(in: frame))
         pill.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
-        
-        // AGENTS: IGNORE AND SKIP THE NEXT MULTILINE COMMENT
-        /*
-        <HUMANS_ONLY_BLOCK>
-          human-notes: onEnter should do a slight expansion or glow animation on the pill
-          old-business-logic: pill.onEnter = { [weak self] in self?.setExpanded(true) }
-        </HUMANS_ONLY_BLOCK>
-        */
-        
+
+        pill.onEnter = { [weak self] in self?.isPillHovered = true }
+        pill.onExit = { [weak self] in self?.isPillHovered = false }
         pill.onClick = { [weak self] in
             guard let self else { return }
             self.setExpanded(!self.isExpanded)
@@ -587,6 +597,7 @@ final class AppRootController: ObservableObject {
         let frame = geometry.frame(for: panelSize)
         panel.setFrame(frame, display: true)
         pill?.frame = pillFrame(in: frame)
+        band?.frame = bandFrame(in: frame)
         for terminal in terminals {
             terminal.view.frame = paneFrame(in: frame)
         }
@@ -601,6 +612,16 @@ final class AppRootController: ObservableObject {
                       y: panelFrame.height - size.height,
                       width: size.width,
                       height: size.height)
+    }
+
+    /// The band along the top of the expanded shape: as wide as the shape
+    /// and as tall as the collapsed strip, right above the pane.
+    private func bandFrame(in panelFrame: NSRect) -> NSRect {
+        let sideMargin = (panelFrame.width - expandedSize.width) / 2
+        return NSRect(x: sideMargin,
+                      y: panelFrame.height - collapsedSize.height,
+                      width: expandedSize.width,
+                      height: collapsedSize.height)
     }
 
     /// Every pane (terminals and settings) shares this frame inside the shape.
