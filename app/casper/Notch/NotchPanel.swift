@@ -17,6 +17,9 @@ final class NotchPanel: NSPanel {
         isMovable = false
         isMovableByWindowBackground = false
         hidesOnDeactivate = false
+        // Hide Casper (⌘H in the app menu) deactivates the app, which
+        // collapses the notch; the strip itself must stay on screen.
+        canHide = false
         becomesKeyOnlyIfNeeded = true
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]

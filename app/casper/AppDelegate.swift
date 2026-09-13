@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Casper joins ⌘Tab and the Dock shortly after launch; see start().
         rootController.start()
         // Uncomment to restore menu bar item
         //installStatusItem()
@@ -25,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rootController.shouldQuit() ? .terminateNow : .terminateCancel
     }
 
-    /// LSUIElement hides the Dock icon and menu bar, so this is the only way to quit.
+    /// A menu bar item with Quit, from before the app had a Dock icon.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let icon = NSImage(resource: .menuBarIcon)

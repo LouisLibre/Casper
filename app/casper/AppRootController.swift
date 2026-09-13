@@ -14,6 +14,10 @@
 //    - pin button in the corner                  -> clicks outside no longer collapse;
 //                                                   the collapse button and ⌘M still do
 //    - Moving the mouse away does NOT collapse.
+//    - ⌘Tab or the Dock icon to Casper           -> expand, with the keyboard. Casper is the
+//                                                   active app only while expanded: collapsing
+//                                                   from inside hands activation back
+//    - ⌘Tab (or a click) to another app          -> collapse, unless pinned
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - ⌘Q                                        -> quit (after confirming), from any pane
 //    - ⌘M                                        -> same as the collapse button in the corner
@@ -114,6 +118,12 @@ final class AppRootController: ObservableObject {
 
     private var geometry: AppGeometryReader?
     private var globalClickMonitor: Any?
+    /// The app the user was in before Casper became active, to hand
+    /// activation back to when the notch collapses from inside.
+    private var previousApp: NSRunningApplication?
+    /// Set for a moment after launch, while Casper is not yet switchable-to.
+    private var isSettlingAfterLaunch = true
+    private static let launchSettleDelay: Duration = .seconds(2)
     private let toggleChord = ToggleChordMonitor()
     /// Runs from an outside left press until the button comes up again.
     private var releaseWatcher: Timer?
@@ -399,7 +409,13 @@ final class AppRootController: ObservableObject {
     private func confirm(_ message: String, detail: String, button: String) -> Bool {
         guard let panel else { return false }
         let confirmed = panel.confirm(message, detail: detail, button: button)
-        focusActivePane()
+        if isExpanded {
+            focusActivePane()
+        } else {
+            // Asked while collapsed (Quit in the Dock menu): the alert made
+            // Casper active, and nothing on screen needs it to stay so.
+            yieldActivation()
+        }
         return confirmed
     }
 
@@ -424,6 +440,40 @@ final class AppRootController: ObservableObject {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+
+        // ⌘Tab and the Dock make Casper the active app; being active means
+        // being expanded. Which app to hand activation back to afterwards
+        // is tracked from launch, before the user first switches apps.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidResignActive),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(otherAppDidActivate),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+        rememberPreviousApp(NSWorkspace.shared.frontmostApplication)
+
+        // Launched as an LSUIElement so nothing steals focus at login, and
+        // promoted only once launch has settled: Xcode and other launchers
+        // bring the app they just started to the front, which is not the
+        // user switching in and must not expand the notch. Until then an
+        // activation that lands anyway is handed straight back.
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.launchSettleDelay)
+            self?.isSettlingAfterLaunch = false
+            NSApp.setActivationPolicy(.regular)
+        }
 
         // Clicks delivered to *other* apps are by definition outside our panel
         // (the expanded shape fills the whole panel frame). Global click
@@ -502,7 +552,53 @@ final class AppRootController: ObservableObject {
             pane.conceal(from: expandedShape, to: collapsedShape)
             panel.makeFirstResponder(nil)
             panel.resignKey()
+            yieldActivation()
         }
+    }
+
+    // MARK: - Activation
+
+    /// ⌘Tab or the Dock icon brought Casper forward: open the notch, or
+    /// give it the keyboard again if it was already open (pinned, say).
+    /// Not while an alert is up: it needs the app active and keeps the
+    /// keyboard until answered.
+    @objc private func appDidBecomeActive() {
+        guard NSApp.modalWindow == nil else { return }
+        if isSettlingAfterLaunch {
+            yieldActivation()
+            return
+        }
+        if isExpanded {
+            panel?.makeKeyAndOrderFront(nil)
+            focusActivePane()
+        } else {
+            setExpanded(true)
+        }
+    }
+
+    /// ⌘Tab or a click took the user to another app: close the notch, unless pinned.
+    @objc private func appDidResignActive() {
+        guard NSApp.modalWindow == nil, !isPinned else { return }
+        setExpanded(false)
+    }
+
+    @objc private func otherAppDidActivate(_ notification: Notification) {
+        rememberPreviousApp(notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)
+    }
+
+    private func rememberPreviousApp(_ app: NSRunningApplication?) {
+        guard let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        previousApp = app
+    }
+
+    /// Collapsed from inside while Casper was the active app (after ⌘Tab
+    /// in, or an alert): activation goes back to the app the user came
+    /// from, so the keyboard and the menu bar do not stay with an empty
+    /// screen. Nothing to do when Casper was never active, as after the
+    /// chord: the panel took key status without activating the app.
+    private func yieldActivation() {
+        guard NSApp.isActive, let previousApp, !previousApp.isTerminated else { return }
+        _ = previousApp.activate(from: .current, options: [])
     }
 
     /// Frame of the black shape at a given size, converted into the pane
