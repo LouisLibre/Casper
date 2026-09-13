@@ -63,6 +63,10 @@ final class NotchPanelPill: NSView {
 
     override func mouseDown(with event: NSEvent) { onClick?() }
 
+    // The band never becomes key; its first click must perform the action
+    // even when another app has the keyboard.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     private func configure() {
         // The pill's frame is set by AppRootController. The glyph's host
         // fills it and places the ghost itself.

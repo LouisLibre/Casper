@@ -8,6 +8,9 @@ struct NotchPanelBody: View {
     @EnvironmentObject private var controller: AppRootController
     @ObservedObject private var terminalRuntime = GhosttyRuntime.shared
 
+    enum Region { case body, band }
+    var region: Region = .body
+
     static let borderColor = Color.white.opacity(0.3)
     static let borderWidth: CGFloat = 1
     /// Radius of the expanded shape's bottom corners. The size hints sit
@@ -51,44 +54,52 @@ struct NotchPanelBody: View {
         let opaqueTint = controller.isShowingSettings ? Color.black : Color(nsColor: terminalRuntime.backgroundColor)
 
         ZStack(alignment: .top) {
-            NotchBackdrop()
-                .notchSized(CGSize(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height),
-                            expanding: controller.isExpanded)
-                .mask { shape.notchSized(size, expanding: controller.isExpanded) }
-                .overlay { shape.fill(Self.backdropTint).notchSized(size, expanding: controller.isExpanded) }
-                .overlay {
-                    shape.fill(opaqueTint)
-                        .notchSized(size, expanding: controller.isExpanded)
-                        .opacity(controller.isTerminalTransparent ? 0 : 1)
-                }
-                .allowsHitTesting(false)
+            if region == .body {
+                NotchBackdrop()
+                    .notchSized(CGSize(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height),
+                                expanding: controller.isExpanded)
+                    .mask { shape.notchSized(size, expanding: controller.isExpanded) }
+                    .overlay { shape.fill(Self.backdropTint).notchSized(size, expanding: controller.isExpanded) }
+                    .overlay {
+                        shape.fill(opaqueTint)
+                            .notchSized(size, expanding: controller.isExpanded)
+                            .opacity(controller.isTerminalTransparent ? 0 : 1)
+                    }
+                    .allowsHitTesting(false)
 
-            if let vignette = Self.vignetteGradient(Self.vignette) {
+                if let vignette = Self.vignetteGradient(Self.vignette) {
+                    shape
+                        .fill(vignette)
+                        .notchSized(size, expanding: controller.isExpanded)
+                        .opacity(controller.isTerminalTransparent ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
+
                 shape
-                    .fill(vignette)
+                    .fill(Self.topGradient(solid: controller.collapsedSize.height, height: size.height))
                     .notchSized(size, expanding: controller.isExpanded)
                     .opacity(controller.isTerminalTransparent ? 1 : 0)
                     .allowsHitTesting(false)
+
+                // Keep the hardware notch and its controls black in solid mode,
+                // with a clean edge above the terminal instead of a dark fade
+                // across the theme's background. Cover the hover swell too.
+                shape
+                    .fill(.black)
+                    .notchSized(size, expanding: controller.isExpanded)
+                    .mask(alignment: .top) {
+                        Rectangle().frame(width: size.width + NotchShape.maxTopCornerRadius * 2,
+                                          height: controller.isExpanded ? controller.collapsedSize.height : size.height)
+                    }
+                    .opacity(controller.isTerminalTransparent ? 0 : 1)
+                    .allowsHitTesting(false)
+            } else {
+                // The window clips this to the top strip. Use the very same
+                // shape, size and springs as the body, including the pill's
+                // hover swell, without another glass backdrop behind it.
+                shape.fill(.black).notchSized(size, expanding: controller.isExpanded)
+                    .allowsHitTesting(false)
             }
-
-            shape
-                .fill(Self.topGradient(solid: controller.collapsedSize.height, height: size.height))
-                .notchSized(size, expanding: controller.isExpanded)
-                .opacity(controller.isTerminalTransparent ? 1 : 0)
-                .allowsHitTesting(false)
-
-            // Keep the hardware notch and its controls black in solid mode,
-            // with a clean edge above the terminal instead of a dark fade
-            // across the theme's background. Cover the hover swell too.
-            shape
-                .fill(.black)
-                .notchSized(size, expanding: controller.isExpanded)
-                .mask(alignment: .top) {
-                    Rectangle().frame(width: size.width + NotchShape.maxTopCornerRadius * 2,
-                                      height: controller.isExpanded ? controller.collapsedSize.height : size.height)
-                }
-                .opacity(controller.isTerminalTransparent ? 0 : 1)
-                .allowsHitTesting(false)
 
             shape
                 .fill(.clear)
@@ -110,14 +121,29 @@ struct NotchPanelBody: View {
             // Floats in the band the panel reserves under the expanded shape.
             // Rises into place on the same spring as the shape; while
             // collapsed it is invisible and lets clicks through.
-            NotchDock()
-                .padding(.top, controller.expandedSize.height + NotchDock.topGap)
-                .offset(y: controller.isExpanded ? 0 : -12)
-                .opacity(controller.isExpanded ? 1 : 0)
-                .allowsHitTesting(controller.isExpanded)
+            if region == .body {
+                NotchDock()
+                    .padding(.top, controller.expandedSize.height + NotchDock.topGap)
+                    .offset(y: controller.isExpanded ? 0 : -12)
+                    .opacity(controller.isExpanded ? 1 : 0)
+                    .allowsHitTesting(controller.isExpanded)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea()
+        .mask(alignment: .top) {
+            // The two windows draw complementary slices, so translucent
+            // edges aren't painted twice. The band host has the full body
+            // size for identical layout, clipped by its thin window.
+            if region == .body {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: controller.collapsedSize.height)
+                    Color.white
+                }
+            } else {
+                Color.white
+            }
+        }
         // Same spring as the terminal's reveal mask. Window frame never
         // animates. `isExpanded` already holds the new value here, so it
         // names the direction this transition runs in. Widths and heights

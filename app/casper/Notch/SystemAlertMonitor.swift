@@ -15,15 +15,22 @@ final class SystemAlertMonitor {
     private var timer: Timer?
     private var isExpanded = false
     private var confirmationCount = 0
-    private var alertLevel: Int?
+    private var levels = AlertLevels()
 
-    var isYielding: Bool { alertLevel != nil }
+    struct AlertLevels: Equatable {
+        var panel: Int?
+        var band: Int?
+
+        var lowest: Int? { [panel, band].compactMap { $0 }.min() }
+    }
+
+    var isYielding: Bool { levels.lowest != nil }
 
     /// A child stays above its parent by ordering, but must stay below an
     /// external alert too. `confirm` also reapplies this after activation.
     var confirmationLevel: NSWindow.Level {
-        isYielding ? panel?.level ?? .normal
-            : NSWindow.Level(rawValue: NotchPanel.notchLevel.rawValue + 1)
+        NSWindow.Level(rawValue: levels.lowest.map { $0 - 1 }
+                       ?? NotchPanel.notchLevel.rawValue + 1)
     }
 
     init(panel: NotchPanel) {
@@ -53,7 +60,7 @@ final class SystemAlertMonitor {
         guard isExpanded || confirmationCount > 0 else {
             timer?.invalidate()
             timer = nil
-            apply(alertLevel: nil)
+            apply(levels: AlertLevels())
             return
         }
         refresh()
@@ -79,14 +86,31 @@ final class SystemAlertMonitor {
                 [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
               ) as? [[String: Any]] else { return }
 
-        let ownIDs = Set(([panel] + (panel.childWindows ?? [])).map { $0.windowNumber })
-        let lowestAlert = Self.alertLevel(
-            in: windows, covering: ownIDs, ownPID: ProcessInfo.processInfo.processIdentifier
+        let ownIDs = Set(([panel] + panel.confirmationWindows).map { $0.windowNumber })
+        var hosts: [pid_t: Bool] = [:]
+        let levels = Self.alertLevels(
+            in: windows, panelIDs: ownIDs, bandID: panel.bandWindow?.windowNumber,
+            ownPID: ProcessInfo.processInfo.processIdentifier
         ) { pid in
-            guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
-            return Self.isSystemDialogHost(app)
+            if let cached = hosts[pid] { return cached }
+            let isHost = NSRunningApplication(processIdentifier: pid).map(Self.isSystemDialogHost) ?? false
+            hosts[pid] = isHost
+            return isHost
         }
-        apply(alertLevel: lowestAlert)
+        apply(levels: levels)
+    }
+
+    /// A centered prompt lowers the body alone. A prompt that reaches the
+    /// top strip lowers that window too: the menu bar never takes priority
+    /// over a permission dialog. Both decisions use the same snapshot.
+    static func alertLevels(in windows: [[String: Any]], panelIDs: Set<Int>, bandID: Int?,
+                            ownPID: pid_t, isSystemDialogHost: (pid_t) -> Bool) -> AlertLevels {
+        AlertLevels(
+            panel: alertLevel(in: windows, covering: panelIDs, ownPID: ownPID,
+                              isSystemDialogHost: isSystemDialogHost),
+            band: alertLevel(in: windows, covering: Set(bandID.map { [$0] } ?? []), ownPID: ownPID,
+                             isSystemDialogHost: isSystemDialogHost)
+        )
     }
 
     static func alertLevel(in windows: [[String: Any]], covering ownIDs: Set<Int>,
@@ -134,14 +158,28 @@ final class SystemAlertMonitor {
         return CGRect(dictionaryRepresentation: bounds)
     }
 
-    private func apply(alertLevel: Int?) {
-        self.alertLevel = alertLevel
+    private func apply(levels: AlertLevels) {
+        self.levels = levels
         guard let panel else { return }
         // Compare to the normal notch level when detecting, not the lowered
         // level, or the next poll would miss the alert and oscillate.
-        let level = alertLevel.map { NSWindow.Level(rawValue: $0 - 1) } ?? NotchPanel.notchLevel
+        let level = levels.panel.map { NSWindow.Level(rawValue: $0 - 1) } ?? NotchPanel.notchLevel
+        let bandLevel = levels.band.map { NSWindow.Level(rawValue: $0 - 1) } ?? NotchPanel.notchLevel
+        let band = panel.bandWindow
+        // Attached windows form an ordering group. Separate the strip while
+        // it needs an independent level; reattach above the body afterwards
+        // so activating the terminal cannot cover its own controls.
+        if let band, band.parent === panel, bandLevel != level {
+            panel.removeChildWindow(band)
+        }
         if panel.level != level { panel.level = level }
-        for child in panel.childWindows ?? [] {
+        if let band {
+            if band.level != bandLevel { band.level = bandLevel }
+            if band.parent == nil, bandLevel == level {
+                panel.addChildWindow(band, ordered: .above)
+            }
+        }
+        for child in panel.confirmationWindows {
             if child.level != confirmationLevel { child.level = confirmationLevel }
         }
         // Changing level doesn't activate either app or steal keyboard focus.

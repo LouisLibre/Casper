@@ -129,9 +129,10 @@ final class AppRootController: ObservableObject {
     private var panel: NotchPanel?
     private var pill: NotchPanelPill?
     private var band: NotchPanelBand?
-    private var body: NotchPanelBody?
+    private var bandDrawing: NSHostingView<AnyView>?
     private var settingsScreen: NotchSettingsScreen?
     private var cornerControls: NotchCornerControlsHost?
+    private var cornerHints: NotchCornerControlsHost?
     private var sizeHints: NotchSizeHintsHost?
     private var resizeHandle: NotchResizeHandle?
 
@@ -142,7 +143,9 @@ final class AppRootController: ObservableObject {
         return activeTerminal
     }
 
-    private var geometry: AppGeometryReader?
+    // A display change can alter band height without changing the size rung.
+    // Both SwiftUI slices must redraw even when expandedSize stays the same.
+    @Published private var geometry: AppGeometryReader?
     private var globalClickMonitor: Any?
     /// Activation notifications can arrive before the workspace's cached
     /// frontmost app changes, especially on the first activation after launch.
@@ -274,8 +277,8 @@ final class AppRootController: ObservableObject {
         }
         if let panel, let container = panel.contentView {
             terminal.view.frame = paneFrame(in: panel.frame)
-            // Above the SwiftUI body, below the pill.
-            container.addSubview(terminal.view, positioned: .below, relativeTo: pill)
+            // Above the SwiftUI body, below the resize handle and key hints.
+            container.addSubview(terminal.view, positioned: .below, relativeTo: resizeHandle)
         }
         terminals.append(terminal)
         terminal.startShellIfNeeded(in: workingDirectory)
@@ -822,17 +825,30 @@ final class AppRootController: ObservableObject {
         hosting.autoresizingMask = [.width, .height]
         container.addSubview(hosting)
 
+        // The strip is a separate, non-key window. It keeps covering the
+        // menu bar when the body yields to a centered permission prompt.
+        // Its drawing uses the full body's coordinates, clipped to this
+        // thin frame, so both slices follow exactly the same shape spring.
+        let bandWindow = NotchBandPanel(contentRect: bandWindowFrame(in: frame))
+        let bandContainer = NSView(frame: NSRect(origin: .zero, size: bandWindow.frame.size))
+        let bandDrawing = NSHostingView(rootView: AnyView(NotchPanelBody(region: .band).environmentObject(self)))
+        bandDrawing.sizingOptions = []
+        bandDrawing.safeAreaRegions = []
+        bandDrawing.frame = bandDrawingFrame(in: frame)
+        bandContainer.addSubview(bandDrawing)
+        self.bandDrawing = bandDrawing
+
         // The band along the top of the expanded shape collapses on click,
         // as the pill does. Under the pill and the corner controls, which
         // take their own clicks first. Hidden while collapsed.
-        let band = NotchPanelBand(frame: bandFrame(in: frame))
+        let band = NotchPanelBand(frame: bandFrame(in: bandWindow.frame))
         band.isHidden = true
         band.onClick = { [weak self] in self?.collapse() }
-        container.addSubview(band)
+        bandContainer.addSubview(band)
         self.band = band
 
         // Pill hit-target view pinned over the place where the physical hardware notch is supposed to be.
-        let pill = NotchPanelPill(frame: pillFrame(in: frame))
+        let pill = NotchPanelPill(frame: pillFrame(in: bandWindow.frame))
         pill.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
 
         pill.onEnter = { [weak self] in self?.isPillHovered = true }
@@ -841,18 +857,18 @@ final class AppRootController: ObservableObject {
             guard let self else { return }
             self.setExpanded(!self.isExpanded)
         }
-        container.addSubview(pill)
+        bandContainer.addSubview(pill)
         self.pill = pill
 
         // In the panel from the start, hidden until its dock tab is selected.
         let settings = NotchSettingsScreen(controller: self)
         settings.view.frame = paneFrame(in: frame)
-        container.addSubview(settings.view, positioned: .below, relativeTo: pill)
+        container.addSubview(settings.view)
         settingsScreen = settings
 
         // Drag target for resizing by hand, along the bottom of the
         // expanded shape in the margin outside the pane. Above the panes
-        // (the terminals come in below the pill), though its zones never
+        // (the terminals come in below this handle), though its zones never
         // reach them. Hidden while collapsed.
         let handle = NotchResizeHandle(frame: resizeHandleFrame(in: frame))
         handle.isHidden = true
@@ -861,17 +877,24 @@ final class AppRootController: ObservableObject {
         container.addSubview(handle)
         resizeHandle = handle
 
-        // Collapse and close, in the band at the top right of the expanded
-        // shape. Their key hints hang under the band, over the pane, so
-        // they live above every pane: last in, and the terminals come in
-        // below the pill.
+        // Real controls in the band window. Their badges use the same
+        // layout in a noninteractive host in the body, clipped below the
+        // band, so they don't require a taller high-level window.
         let corner = NotchCornerControlsHost(rootView: AnyView(NotchCornerControls().environmentObject(self)))
         corner.sizingOptions = []
         corner.safeAreaRegions = []
         corner.bandHeight = collapsedSize.height
-        corner.frame = cornerControlsFrame(in: frame)
-        container.addSubview(corner)
+        corner.frame = cornerControlsFrame(in: bandWindow.frame)
+        bandContainer.addSubview(corner)
         cornerControls = corner
+
+        let cornerHints = NotchCornerControlsHost(rootView: AnyView(NotchCornerControls(region: .hints).environmentObject(self)))
+        cornerHints.sizingOptions = []
+        cornerHints.safeAreaRegions = []
+        cornerHints.takesClicks = false
+        cornerHints.frame = cornerControlsFrame(in: frame)
+        container.addSubview(cornerHints)
+        self.cornerHints = cornerHints
 
         // The size shortcuts' hints, on the bottom-right corner of the
         // expanded shape. The shrink hint lies over the pane, so this host
@@ -885,6 +908,9 @@ final class AppRootController: ObservableObject {
 
         panel.contentView = container
         panel.acceptsMouseMovedEvents = true
+        bandWindow.contentView = bandContainer
+        panel.bandWindow = bandWindow
+        panel.addChildWindow(bandWindow, ordered: .above)
         panel.orderFrontRegardless()
         self.panel = panel
     }
@@ -896,16 +922,32 @@ final class AppRootController: ObservableObject {
         guard let panel, let geometry else { return }
         let frame = geometry.frame(for: panelSize)
         panel.setFrame(frame, display: true)
-        pill?.frame = pillFrame(in: frame)
-        band?.frame = bandFrame(in: frame)
+        let bandFrame = bandWindowFrame(in: frame)
+        panel.bandWindow?.setFrame(bandFrame, display: true)
+        bandDrawing?.frame = bandDrawingFrame(in: frame)
+        pill?.frame = pillFrame(in: bandFrame)
+        band?.frame = self.bandFrame(in: bandFrame)
         for terminal in terminals {
             terminal.view.frame = paneFrame(in: frame)
         }
         settingsScreen?.view.frame = paneFrame(in: frame)
         cornerControls?.bandHeight = collapsedSize.height
-        cornerControls?.frame = cornerControlsFrame(in: frame)
+        cornerControls?.frame = cornerControlsFrame(in: bandFrame)
+        cornerHints?.frame = cornerControlsFrame(in: frame)
         sizeHints?.frame = sizeHintsFrame(in: frame)
         resizeHandle?.frame = resizeHandleFrame(in: frame)
+        panel.systemAlerts.refresh()
+    }
+
+    private func bandWindowFrame(in panelFrame: NSRect) -> NSRect {
+        NSRect(x: panelFrame.minX, y: panelFrame.maxY - collapsedSize.height,
+               width: panelFrame.width, height: collapsedSize.height)
+    }
+
+    /// A full-size drawing whose top aligns with the thin window's top.
+    private func bandDrawingFrame(in panelFrame: NSRect) -> NSRect {
+        NSRect(x: 0, y: collapsedSize.height - panelFrame.height,
+               width: panelFrame.width, height: panelFrame.height)
     }
 
     private func pillFrame(in panelFrame: NSRect) -> NSRect {

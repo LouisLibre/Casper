@@ -11,6 +11,15 @@ final class NotchPanel: NSPanel {
     /// `confirm`. Yield our own window level while one could be covered.
     lazy var systemAlerts = SystemAlertMonitor(panel: self)
 
+    /// The thin strip has its own level so it can stay above the menu bar
+    /// while the terminal yields to a permission dialog. Attached above us
+    /// whenever the levels match; the monitor separates them while yielding.
+    var bandWindow: NSPanel?
+
+    var confirmationWindows: [NSWindow] {
+        (childWindows ?? []).filter { $0 !== bandWindow }
+    }
+
     init(contentRect: NSRect) {
         super.init(contentRect: contentRect,
                    styleMask: [.borderless, .nonactivatingPanel],

@@ -9,6 +9,8 @@ import CoreGraphics
 
 @main
 struct SystemAlertMonitorTests {
+    private static var checks = 0
+
     static func main() {
         let panel = window(1, pid: 100, level: 26)
         let permission = window(2, pid: 200, level: 8)
@@ -51,9 +53,44 @@ struct SystemAlertMonitorTests {
                ownIDs: [1, 3])
         expect(nil, [permission], "No onscreen Casper window means no occlusion")
         expect(nil, [panel, [:]], "Incomplete metadata is ignored")
+
+        let band = window(4, pid: 100, level: 26,
+                          frame: CGRect(x: 0, y: 0, width: 752, height: 33))
+        let centered = window(2, pid: 200, level: 8,
+                              frame: CGRect(x: 250, y: 150, width: 260, height: 200))
+        let atTop = window(2, pid: 200, level: 8,
+                           frame: CGRect(x: 250, y: 20, width: 260, height: 200))
+        expectLevels(.init(panel: 8, band: nil), [panel, band, centered],
+                     "A centered permission prompt lowers the body but preserves the band")
+        expectLevels(.init(panel: 8, band: 8), [panel, band, atTop],
+                     "A prompt touching the band takes priority over hiding the menu bar")
+        expectLevels(.init(panel: 0, band: 8),
+                     [panel, band, atTop, window(5, pid: 200, level: 0,
+                                                frame: CGRect(x: 250, y: 300, width: 260, height: 200))],
+                     "Each window yields to its own lowest overlapping alert")
+        expectLevels(.init(panel: 8, band: nil),
+                     [window(1, pid: 100, level: 7), band, centered],
+                     "An independently raised band cannot make the body oscillate")
+        expectLevels(.init(), [window(1, pid: 100, level: 7), band],
+                     "Closing the prompt restores both windows")
+        expectLevels(.init(panel: 8, band: nil), [panel, band, centered],
+                     "Moving a prompt out of the band restores only the band")
+        expectLevels(.init(), [panel, band, window(2, pid: 200, level: 8,
+                          frame: CGRect(x: 2000, y: -800, width: 260, height: 200))],
+                     "A prompt on another display cannot lower either window")
+        expectLevels(.init(panel: 8, band: nil),
+                     [panel, band, window(3, pid: 100, level: 27,
+                                         frame: CGRect(x: 800, y: 100, width: 260, height: 200)),
+                      window(2, pid: 200, level: 8,
+                             frame: CGRect(x: 800, y: 100, width: 260, height: 200))],
+                     "A child-only overlap leaves the band raised", panelIDs: [1, 3])
+        expectLevels(.init(panel: 8, band: nil), [panel, centered],
+                     "Monitoring still works before a band window is onscreen")
+        expectLevels(.init(panel: nil, band: 8), [band, atTop],
+                     "A band-only overlap is still a yielding state")
         // No fixtures include a window title or sharing state: neither is
         // available without Screen Recording approval, nor needed here.
-        print("Passed 23 system-alert window-ordering checks")
+        print("Passed \(checks) system-alert window-ordering checks")
     }
 
     private static func window(_ id: Int, pid: Int32, level: Int, alpha: Double = 1,
@@ -71,5 +108,15 @@ struct SystemAlertMonitorTests {
             $0 == 200
         }
         precondition(actual == expected, "\(message): expected \(String(describing: expected)), got \(String(describing: actual))")
+        checks += 1
+    }
+
+    private static func expectLevels(_ expected: SystemAlertMonitor.AlertLevels,
+                                     _ windows: [[String: Any]], _ message: String,
+                                     panelIDs: Set<Int> = [1]) {
+        let actual = SystemAlertMonitor.alertLevels(in: windows, panelIDs: panelIDs, bandID: 4,
+                                                    ownPID: 100) { $0 == 200 }
+        precondition(actual == expected, "\(message): expected \(expected), got \(actual)")
+        checks += 1
     }
 }

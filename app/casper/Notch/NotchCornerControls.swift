@@ -17,9 +17,9 @@
 //  The band is not tall enough to hold a badge under a button, so the
 //  quit and collapse badges hang out under it, over the top of the pane.
 //  The pin badge sits beside its capsule instead, on the left, where the
-//  band has room. The panes sit above the panel's SwiftUI body, so the
-//  controls live in a host of their own above them
-//  (NotchCornerControlsHost), sized to this corner alone.
+//  band has room. The buttons live in the thin band window; an identical,
+//  noninteractive layout paints only the badges below it in the terminal
+//  window. NotchCornerControlsHost keeps both sized to this corner alone.
 //
 
 import AppKit
@@ -27,6 +27,11 @@ import SwiftUI
 
 struct NotchCornerControls: View {
     @EnvironmentObject private var controller: AppRootController
+
+    /// Identical layout in both windows: real buttons in the band, only
+    /// the portion of their badges below the band in the terminal window.
+    enum Region { case band, hints }
+    var region: Region = .band
 
     /// Distance from the shape's right edge.
     static let padding: CGFloat = 18
@@ -95,6 +100,7 @@ struct NotchCornerControls: View {
         HStack(spacing: Self.spacing) {
             CornerButton(label: controller.isPinned ? "Unpin to set auto-collapse on" : "Pin to set auto-collapse off",
                          keyHint: showsKeyHints ? "P" : nil,
+                         showsFace: region == .band,
                          hintPlacement: .leading, isLit: controller.isPinned,
                          action: { controller.togglePinned() }) { _ in
                 CornerCapsule(symbol: "pin.fill", text: "PIN", isOn: controller.isPinned)
@@ -103,11 +109,13 @@ struct NotchCornerControls: View {
             }
             CornerButton(label: "Quit Casper",
                          keyHint: showsKeyHints ? "Q" : nil,
+                         showsFace: region == .band,
                          action: { controller.quit() }) { _ in
                 CornerCapsule(symbol: "command", text: "QUIT")
             }
             CornerButton(label: "Collapse",
                          keyHint: showsKeyHints ? "M" : nil,
+                         showsFace: region == .band,
                          chordHint: showsKeyHints ? ToggleChordMonitor.hint : nil,
                          dimsAtRest: false,
                          action: { controller.collapse() }) { hovering in
@@ -121,7 +129,18 @@ struct NotchCornerControls: View {
         // Hidden and click-through while collapsed so the pill keeps the
         // strip to itself. Fades on the same spring as the shape.
         .opacity(controller.isExpanded ? 1 : 0)
-        .allowsHitTesting(controller.isExpanded)
+        .allowsHitTesting(controller.isExpanded && region == .band)
+        .accessibilityHidden(region == .hints)
+        .mask(alignment: .top) {
+            if region == .hints {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: controller.collapsedSize.height)
+                    Color.white
+                }
+            } else {
+                Color.white
+            }
+        }
         .animation(NotchSpring.swiftUI(expanding: controller.isExpanded), value: controller.isExpanded)
     }
 
@@ -187,6 +206,7 @@ struct NotchCornerControls: View {
         /// The key that, with ⌘, does what a click does, shown in a badge
         /// under the button. Set only while ⌘ is held.
         let keyHint: String?
+        var showsFace = true
         /// A modifier chord that does the same from any app, in a second
         /// badge under the first. Set only while ⌘ is held.
         var chordHint: String? = nil
@@ -218,7 +238,7 @@ struct NotchCornerControls: View {
         var body: some View {
             Button(action: action) {
                 face(hovering)
-                    .opacity(opacity)
+                    .opacity(showsFace ? opacity : 0)
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -299,8 +319,12 @@ private extension View {
 final class NotchCornerControlsHost: NSHostingView<AnyView> {
     /// Height of the band at the top of the view.
     var bandHeight: CGFloat = 0
+    var takesClicks = true
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { takesClicks }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard takesClicks else { return nil }
         let local = convert(point, from: superview)
         let distanceFromTop = isFlipped ? local.y : bounds.height - local.y
         let distanceFromRight = bounds.width - local.x
