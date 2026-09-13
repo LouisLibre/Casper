@@ -10,9 +10,9 @@
 //  app (see ToggleChordMonitor).
 //
 //  While pinned, the pin capsule also answers "why didn't it close": a
-//  click outside glows it once, and a switch to another app (⌘Tab) shakes
-//  it as well. The controller counts those refusals and each count going
-//  up plays the animation once.
+//  click outside or a switch to another app (⌘Tab) shakes and glows it
+//  once. The controller counts those refusals and each count going up
+//  plays the animation once.
 //
 //  The band is not tall enough to hold a badge under a button, so the
 //  quit and collapse badges hang out under it, over the top of the pane.
@@ -98,8 +98,8 @@ struct NotchCornerControls: View {
                          hintPlacement: .leading, isLit: controller.isPinned,
                          action: { controller.togglePinned() }) { _ in
                 CornerCapsule(symbol: "pin.fill", text: "PIN", isOn: controller.isPinned)
-                    .glows(on: controller.pinGlowCount)
-                    .shakes(on: controller.pinShakeCount)
+                    .glows(on: controller.pinRefusalCount)
+                    .shakes(on: controller.pinRefusalCount)
             }
             CornerButton(label: "Quit Casper",
                          keyHint: showsKeyHints ? "Q" : nil,

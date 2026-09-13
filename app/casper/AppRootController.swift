@@ -13,8 +13,8 @@
 //    - right button pressed outside the panel    -> collapse
 //    - pin button in the corner                  -> clicks outside no longer collapse;
 //                                                   the collapse button and ⌘M still do.
-//                                                   A click outside glows the pin capsule
-//                                                   once, ⌘Tab away shakes it as well: the
+//                                                   A click outside or ⌘Tab away shakes and
+//                                                   glows the pin capsule once instead: the
 //                                                   answer to "why didn't it close"
 //    - Moving the mouse away does NOT collapse.
 //    - ⌘Tab or the Dock icon to Casper           -> expand, with the keyboard. Casper is the
@@ -54,11 +54,9 @@ final class AppRootController: ObservableObject {
     /// button and ⌘M still collapse it. Off at every launch.
     @Published private(set) var isPinned = false
     /// The pin capsule's answer to "why didn't it close". Every collapse
-    /// refused because the notch is pinned bumps the glow count and the
-    /// capsule glows once; a refused switch to another app (⌘Tab, the
-    /// Dock) bumps the shake count too and the capsule shakes as well.
-    @Published private(set) var pinGlowCount = 0
-    @Published private(set) var pinShakeCount = 0
+    /// refused because the notch is pinned (a click outside, ⌘Tab or the
+    /// Dock) bumps this, and the capsule shakes and glows once per bump.
+    @Published private(set) var pinRefusalCount = 0
     /// One switch away arrives as two notifications (Casper resigning, the
     /// other app activating), and a click outside as a press plus a switch.
     /// Refusals while this runs are the same refusal and play nothing.
@@ -422,13 +420,10 @@ final class AppRootController: ObservableObject {
     }
 
     /// The notch stayed open because it is pinned, so the pin capsule shows
-    /// why: it glows once, and shakes too when `shaking`, for the stronger
-    /// "no" to a switch away. Nothing while collapsed, where no capsule is
-    /// on screen.
-    private func refuseCollapseWhilePinned(shaking: Bool) {
+    /// why. Nothing while collapsed, where no capsule is on screen.
+    private func refuseCollapseWhilePinned() {
         guard isExpanded, pinRefusalCooldown == nil else { return }
-        pinGlowCount += 1
-        if shaking { pinShakeCount += 1 }
+        pinRefusalCount += 1
         pinRefusalCooldown = Task { [weak self] in
             try? await Task.sleep(for: Self.pinRefusalCooldownDuration)
             self?.pinRefusalCooldown = nil
@@ -529,7 +524,7 @@ final class AppRootController: ObservableObject {
         // monitors are reliable without Accessibility permission. A right
         // press collapses at once; a left press may be the start of a drag
         // headed for the terminal, so that decision waits for the release.
-        // While pinned neither collapses; the pin capsule glows instead.
+        // While pinned neither collapses; the pin capsule shakes instead.
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
@@ -537,7 +532,7 @@ final class AppRootController: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 if self.isPinned {
-                    self.refuseCollapseWhilePinned(shaking: false)
+                    self.refuseCollapseWhilePinned()
                     return
                 }
                 if isRightPress {
@@ -686,14 +681,11 @@ final class AppRootController: ObservableObject {
     /// holds the app active. Dock-policy changes only run while collapsed.
     private func collapseForAppSwitch() {
         guard NSApp.modalWindow == nil else { return }
-        let isClick = NSEvent.pressedMouseButtons & 1 != 0
         if isPinned {
-            // A click in another app reaches the click monitor too, which
-            // glows the pin for it. ⌘Tab and the Dock shake it as well.
-            if !isClick { refuseCollapseWhilePinned(shaking: true) }
+            refuseCollapseWhilePinned()
             return
         }
-        if isClick {
+        if NSEvent.pressedMouseButtons & 1 != 0 {
             collapseWhenReleasedOutside()
             return
         }
