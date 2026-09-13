@@ -12,10 +12,10 @@ window-padding-x = 4
 window-padding-y = 6
 window-padding-balance = true
 window-padding-color = extend
-# The notch body is liquid glass and supplies the terminal's darkness, so the
-# surface renders with no background of its own. Anything above 0 shows a
-# faint frame where the glass margin meets the terminal. Keep explicit cell
-# backgrounds (including highlights drawn by TUIs) solid. This is a boolean:
+# The panel supplies the background: dark glass with transparency on, or the
+# theme's solid background color with it off. Leave the surface clear so its
+# margins and content share that backdrop without an inner frame. Keep explicit
+# cell backgrounds (including highlights drawn by TUIs) solid. This is a boolean:
 # true/1 applies background-opacity to those cells too, making them invisible
 # at opacity 0. Ghostty's own text selection is always opaque either way.
 background-opacity = 0

@@ -78,7 +78,7 @@ struct NotchSettingsPane: View {
                 }
 
                 SettingsRow(title: "Transparent background",
-                            detail: "Frosted backdrop behind the terminal. Off makes the shape flat black.") {
+                            detail: "Frosted backdrop behind the terminal. Off uses the terminal theme’s background color.") {
                     Toggle("Transparent background", isOn: Binding(
                         get: { controller.isTerminalTransparent },
                         set: { _ in controller.toggleTerminalTransparency() }

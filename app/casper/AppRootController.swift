@@ -82,7 +82,7 @@ final class AppRootController: ObservableObject {
     private var isCommandHeld = false
     private var shortcutHintTask: Task<Void, Never>?
     private static let shortcutHintDelay: Duration = .milliseconds(800)
-    /// Whether the shape shows the frosted backdrop (on) or flat black (off).
+    /// Whether terminals use the frosted backdrop or the theme's solid background.
     @Published private(set) var isTerminalTransparent = true
     /// Whether Casper is registered to start at login, mirrored from macOS.
     @Published private(set) var opensAtLogin = LoginItem.isEnabled

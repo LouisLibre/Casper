@@ -6,6 +6,7 @@ import SwiftUI
 
 struct NotchPanelBody: View {
     @EnvironmentObject private var controller: AppRootController
+    @ObservedObject private var terminalRuntime = GhosttyRuntime.shared
 
     static let borderColor = Color.white.opacity(0.3)
     static let borderWidth: CGFloat = 1
@@ -23,13 +24,10 @@ struct NotchPanelBody: View {
     /// pointer is over the pill, a hint that the strip takes clicks. The top
     /// edge is flush with the screen and stays put.
     static let hoverGrowth: CGFloat = 6
-    /// All of the terminal's darkness lives here: the surface itself renders
-    /// with a fully transparent background (see defaults.ghostty), so the
-    /// backdrop reads as one sheet with no inner frame around the terminal.
+    /// The tint supplies the terminal's darkness while glass is on. The
+    /// surface's clear background lets the panel supply either this glass
+    /// or the theme's solid background, including the terminal's margins.
     static let backdropTint = Color.black.opacity(0.6)
-    /// With transparency off the tint goes solid, hiding the frosted backdrop
-    /// so the shape reads as flat black.
-    static let opaqueTint = Color.black
 
     /// Shape of the darkening under the band. `.u` lights the bottom center
     /// and darkens toward the top corners and sides; `.o` lights the middle
@@ -50,21 +48,18 @@ struct NotchPanelBody: View {
         let topRadius: CGFloat = controller.isExpanded ? NotchShape.maxTopCornerRadius : 10
         let bottomRadius: CGFloat = controller.isExpanded ? Self.expandedBottomCornerRadius : 12
         let shape = NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius)
+        let opaqueTint = controller.isShowingSettings ? Color.black : Color(nsColor: terminalRuntime.backgroundColor)
 
         ZStack(alignment: .top) {
-            
-            // Uncomment for actual transparency
-            //Color.init(red: 0.175, green: 0.175, blue: 0.175, opacity: 1)
             NotchBackdrop()
                 .notchSized(CGSize(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height),
                             expanding: controller.isExpanded)
                 .mask { shape.notchSized(size, expanding: controller.isExpanded) }
                 .overlay { shape.fill(Self.backdropTint).notchSized(size, expanding: controller.isExpanded) }
                 .overlay {
-                    shape.fill(Self.opaqueTint)
+                    shape.fill(opaqueTint)
                         .notchSized(size, expanding: controller.isExpanded)
                         .opacity(controller.isTerminalTransparent ? 0 : 1)
-                        .animation(.easeInOut(duration: 0.2), value: controller.isTerminalTransparent)
                 }
                 .allowsHitTesting(false)
 
@@ -72,11 +67,31 @@ struct NotchPanelBody: View {
                 shape
                     .fill(vignette)
                     .notchSized(size, expanding: controller.isExpanded)
+                    .opacity(controller.isTerminalTransparent ? 1 : 0)
                     .allowsHitTesting(false)
             }
 
             shape
                 .fill(Self.topGradient(solid: controller.collapsedSize.height, height: size.height))
+                .notchSized(size, expanding: controller.isExpanded)
+                .opacity(controller.isTerminalTransparent ? 1 : 0)
+                .allowsHitTesting(false)
+
+            // Keep the hardware notch and its controls black in solid mode,
+            // with a clean edge above the terminal instead of a dark fade
+            // across the theme's background. Cover the hover swell too.
+            shape
+                .fill(.black)
+                .notchSized(size, expanding: controller.isExpanded)
+                .mask(alignment: .top) {
+                    Rectangle().frame(width: size.width + NotchShape.maxTopCornerRadius * 2,
+                                      height: controller.isExpanded ? controller.collapsedSize.height : size.height)
+                }
+                .opacity(controller.isTerminalTransparent ? 0 : 1)
+                .allowsHitTesting(false)
+
+            shape
+                .fill(.clear)
                 .notchSized(size, expanding: controller.isExpanded)
                 // Restrict hit-testing to the visible shape so the transparent
                 // rest of the panel doesn't swallow clicks.
@@ -113,6 +128,7 @@ struct NotchPanelBody: View {
         // its own spring. A value-keyed animation is needed: the scoped ones
         // in `notchSized` do not fire on their own for a change of size.
         .animation(NotchSpring.hover, value: controller.isPillHovered)
+        .animation(.easeInOut(duration: 0.2), value: controller.isTerminalTransparent)
     }
 
     /// The collapsed shape, a little bigger under the pointer. The change

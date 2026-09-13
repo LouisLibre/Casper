@@ -9,13 +9,14 @@
 //
 
 import AppKit
+import Combine
 import GhosttyKit
 import GhosttyTerminal
 import UniformTypeIdentifiers
 import os
 
 @MainActor
-final class GhosttyRuntime {
+final class GhosttyRuntime: ObservableObject {
     static let shared = GhosttyRuntime()
 
     static let logger = Logger(subsystem: "rs.unaligned.casper", category: "ghostty")
@@ -30,6 +31,11 @@ final class GhosttyRuntime {
     /// compositor.
     private(set) var backgroundOpacity: Double = 1
 
+    /// The theme's opaque background, used by the panel when glass is off.
+    /// Publishing reloads keeps the terminal's transparent pixels and the
+    /// surrounding margin backed by the same color.
+    @Published private(set) var backgroundColor: NSColor = .black
+
     private init() {
         Self.pinResourcesDirectory()
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
@@ -39,6 +45,7 @@ final class GhosttyRuntime {
         guard let config = Self.loadConfig() else { return }
         self.config = config
         backgroundOpacity = Self.backgroundOpacity(of: config)
+        backgroundColor = Self.backgroundColor(of: config)
 
         var runtime = ghostty_runtime_config_s(
             userdata: Unmanaged.passUnretained(self).toOpaque(),
@@ -194,6 +201,7 @@ final class GhosttyRuntime {
         if let previous = self.config { ghostty_config_free(previous) }
         self.config = config
         backgroundOpacity = Self.backgroundOpacity(of: config)
+        backgroundColor = Self.backgroundColor(of: config)
     }
 
     private static func backgroundOpacity(of config: ghostty_config_t) -> Double {
@@ -201,6 +209,16 @@ final class GhosttyRuntime {
         let key = "background-opacity"
         guard ghostty_config_get(config, &opacity, key, UInt(key.utf8.count)) else { return 1 }
         return opacity
+    }
+
+    private static func backgroundColor(of config: ghostty_config_t) -> NSColor {
+        var color = ghostty_config_color_s()
+        let key = "background"
+        guard ghostty_config_get(config, &color, key, UInt(key.utf8.count)) else { return .black }
+        return NSColor(srgbRed: Double(color.r) / 255,
+                       green: Double(color.g) / 255,
+                       blue: Double(color.b) / 255,
+                       alpha: 1)
     }
 
     /// ⌘, (and the settings pane's button) opens Casper's override file in
