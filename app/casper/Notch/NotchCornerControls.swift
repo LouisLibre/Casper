@@ -9,6 +9,11 @@
 //  ⌘M hangs a second badge with the chord that toggles the notch from any
 //  app (see ToggleChordMonitor).
 //
+//  While pinned, the pin capsule also answers "why didn't it close": a
+//  click outside glows it once, and a switch to another app (⌘Tab) shakes
+//  it as well. The controller counts those refusals and each count going
+//  up plays the animation once.
+//
 //  The band is not tall enough to hold a badge under a button, so the
 //  quit and collapse badges hang out under it, over the top of the pane.
 //  The pin badge sits beside its capsule instead, on the left, where the
@@ -93,6 +98,8 @@ struct NotchCornerControls: View {
                          hintPlacement: .leading, isLit: controller.isPinned,
                          action: { controller.togglePinned() }) { _ in
                 CornerCapsule(symbol: "pin.fill", text: "PIN", isOn: controller.isPinned)
+                    .glows(on: controller.pinGlowCount)
+                    .shakes(on: controller.pinShakeCount)
             }
             CornerButton(label: "Quit Casper",
                          keyHint: showsKeyHints ? "Q" : nil,
@@ -241,6 +248,44 @@ struct NotchCornerControls: View {
                 .allowsHitTesting(false)
             }
             .animation(.easeOut(duration: 0.12), value: keyHint)
+        }
+    }
+}
+
+private extension View {
+    /// A white halo along the edge that lights up and fades, once each time
+    /// `trigger` changes. Drawn as an overlay, so it takes no part in
+    /// layout or clicks.
+    func glows(on trigger: Int) -> some View {
+        keyframeAnimator(initialValue: 0.0, trigger: trigger) { view, strength in
+            view.overlay {
+                Capsule()
+                    .stroke(.white, lineWidth: 1.5)
+                    .shadow(color: .white, radius: 5)
+                    .opacity(strength)
+            }
+        } keyframes: { _ in
+            KeyframeTrack {
+                CubicKeyframe(1, duration: 0.12)
+                CubicKeyframe(1, duration: 0.15)
+                CubicKeyframe(0, duration: 0.45)
+            }
+        }
+    }
+
+    /// A quick shake from side to side, dying out, once each time `trigger`
+    /// changes. Moves only what is drawn: the button's click area stays put.
+    func shakes(on trigger: Int) -> some View {
+        keyframeAnimator(initialValue: 0.0, trigger: trigger) { view, offset in
+            view.offset(x: offset)
+        } keyframes: { _ in
+            KeyframeTrack {
+                CubicKeyframe(-5, duration: 0.06)
+                CubicKeyframe(5, duration: 0.08)
+                CubicKeyframe(-3, duration: 0.08)
+                CubicKeyframe(3, duration: 0.08)
+                CubicKeyframe(0, duration: 0.1)
+            }
         }
     }
 }

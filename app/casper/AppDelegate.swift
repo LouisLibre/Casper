@@ -11,8 +11,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Casper joins ⌘Tab and the Dock shortly after launch; see start().
         rootController.start()
+        // Let AppKit finish its initial launch/activation before applying the
+        // saved Dock policy. This is a lifecycle boundary, not a timed delay.
+        DispatchQueue.main.async { [weak self] in
+            self?.rootController.finishLaunch()
+        }
         // Uncomment to restore menu bar item
         //installStatusItem()
     }

@@ -12,7 +12,10 @@
 //      does not, so a drag that starts in another app can end on the terminal.
 //    - right button pressed outside the panel    -> collapse
 //    - pin button in the corner                  -> clicks outside no longer collapse;
-//                                                   the collapse button and ⌘M still do
+//                                                   the collapse button and ⌘M still do.
+//                                                   A click outside glows the pin capsule
+//                                                   once, ⌘Tab away shakes it as well: the
+//                                                   answer to "why didn't it close"
 //    - Moving the mouse away does NOT collapse.
 //    - ⌘Tab or the Dock icon to Casper           -> expand, with the keyboard. Casper is the
 //                                                   active app only while expanded: collapsing
@@ -50,6 +53,17 @@ final class AppRootController: ObservableObject {
     /// While pinned, clicks outside the panel leave it expanded. The corner
     /// button and ⌘M still collapse it. Off at every launch.
     @Published private(set) var isPinned = false
+    /// The pin capsule's answer to "why didn't it close". Every collapse
+    /// refused because the notch is pinned bumps the glow count and the
+    /// capsule glows once; a refused switch to another app (⌘Tab, the
+    /// Dock) bumps the shake count too and the capsule shakes as well.
+    @Published private(set) var pinGlowCount = 0
+    @Published private(set) var pinShakeCount = 0
+    /// One switch away arrives as two notifications (Casper resigning, the
+    /// other app activating), and a click outside as a press plus a switch.
+    /// Refusals while this runs are the same refusal and play nothing.
+    private var pinRefusalCooldown: Task<Void, Never>?
+    private static let pinRefusalCooldownDuration: Duration = .milliseconds(300)
     /// The pointer is over the collapsed strip. The shape swells a little
     /// while it is, to show the strip takes clicks.
     @Published private(set) var isPillHovered = false
@@ -134,9 +148,9 @@ final class AppRootController: ObservableObject {
     /// The app the user was in before Casper became active, to hand
     /// activation back to when the notch collapses from inside.
     private var previousApp: NSRunningApplication?
-    /// Set until launch settles or the user explicitly opens the notch.
-    private var isSettlingAfterLaunch = true
-    private static let launchSettleDelay: Duration = .seconds(2)
+    /// Initial AppKit activation must not open the notch. Cleared once the
+    /// launch callback has returned, or by an explicit click/chord.
+    private var isLaunching = true
     private let toggleChord = ToggleChordMonitor()
     /// Runs from an outside left press until the button comes up again.
     private var releaseWatcher: Timer?
@@ -407,6 +421,20 @@ final class AppRootController: ObservableObject {
         focusActivePane()
     }
 
+    /// The notch stayed open because it is pinned, so the pin capsule shows
+    /// why: it glows once, and shakes too when `shaking`, for the stronger
+    /// "no" to a switch away. Nothing while collapsed, where no capsule is
+    /// on screen.
+    private func refuseCollapseWhilePinned(shaking: Bool) {
+        guard isExpanded, pinRefusalCooldown == nil else { return }
+        pinGlowCount += 1
+        if shaking { pinShakeCount += 1 }
+        pinRefusalCooldown = Task { [weak self] in
+            try? await Task.sleep(for: Self.pinRefusalCooldownDuration)
+            self?.pinRefusalCooldown = nil
+        }
+    }
+
     /// Quits, after asking. The question lives in `shouldQuit`, which the
     /// app delegate puts in front of every path that terminates the app.
     func quit() {
@@ -496,31 +524,22 @@ final class AppRootController: ObservableObject {
             previousApp = frontmost
         }
 
-        // Launched as an LSUIElement so nothing steals focus at login; the
-        // Dock setting is applied only once launch has settled. Xcode and
-        // other launchers bring a regular app they just started to the
-        // front, which is not the user switching in and must not expand
-        // the notch. Until then an activation that lands anyway is handed
-        // straight back.
-        Task { [weak self] in
-            try? await Task.sleep(for: Self.launchSettleDelay)
-            guard let self else { return }
-            self.isSettlingAfterLaunch = false
-            self.applyActivationPolicy()
-        }
-
         // Clicks delivered to *other* apps are by definition outside our panel
         // (the expanded shape fills the whole panel frame). Global click
         // monitors are reliable without Accessibility permission. A right
         // press collapses at once; a left press may be the start of a drag
         // headed for the terminal, so that decision waits for the release.
-        // Neither does anything while pinned.
+        // While pinned neither collapses; the pin capsule glows instead.
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             let isRightPress = event.type == .rightMouseDown
             DispatchQueue.main.async {
-                guard let self, !self.isPinned else { return }
+                guard let self else { return }
+                if self.isPinned {
+                    self.refuseCollapseWhilePinned(shaking: false)
+                    return
+                }
                 if isRightPress {
                     self.setExpanded(false)
                 } else {
@@ -535,6 +554,14 @@ final class AppRootController: ObservableObject {
             self.setExpanded(!self.isExpanded)
         }
         toggleChord.start()
+    }
+
+    /// Called on the first main-queue turn after AppKit's launch callback.
+    /// LSUIElement keeps launch itself inactive; joining the Dock afterwards
+    /// does not turn that launch into a request to expand the notch.
+    func finishLaunch() {
+        isLaunching = false
+        applyActivationPolicy()
     }
 
     /// Collapses once the left button is released, unless the pointer is then
@@ -579,9 +606,9 @@ final class AppRootController: ObservableObject {
         pill?.setIconVisible(!expanded, animated: true)
         band?.isHidden = !expanded
         if expanded {
-            // An explicit click or chord ends launch settling too. A later
-            // activation callback must not hand this user request back.
-            isSettlingAfterLaunch = false
+            // An explicit click or chord takes precedence over startup.
+            // A later activation callback must not hand this request back.
+            isLaunching = false
             pane.reveal(from: collapsedShape, to: expandedShape)
             focusExpandedPanel()
         } else {
@@ -607,7 +634,7 @@ final class AppRootController: ObservableObject {
         guard NSApp.modalWindow == nil,
               let frontmost = NSWorkspace.shared.frontmostApplication,
               Self.isCasper(frontmost) else { return }
-        if isSettlingAfterLaunch {
+        if isLaunching {
             yieldActivation()
             return
         }
@@ -658,8 +685,15 @@ final class AppRootController: ObservableObject {
     /// Every completed switch away collapses, unless pinned or an alert
     /// holds the app active. Dock-policy changes only run while collapsed.
     private func collapseForAppSwitch() {
-        guard NSApp.modalWindow == nil, !isPinned else { return }
-        if NSEvent.pressedMouseButtons & 1 != 0 {
+        guard NSApp.modalWindow == nil else { return }
+        let isClick = NSEvent.pressedMouseButtons & 1 != 0
+        if isPinned {
+            // A click in another app reaches the click monitor too, which
+            // glows the pin for it. ⌘Tab and the Dock shake it as well.
+            if !isClick { refuseCollapseWhilePinned(shaking: true) }
+            return
+        }
+        if isClick {
             collapseWhenReleasedOutside()
             return
         }
@@ -684,7 +718,7 @@ final class AppRootController: ObservableObject {
     /// mistake the user's next switch away for part of the policy change.
     /// A preference changed while open is applied on collapse/deactivation.
     private func applyActivationPolicy() {
-        guard !isSettlingAfterLaunch, !isExpanded, !NSApp.isActive else { return }
+        guard !isLaunching, !isExpanded, !NSApp.isActive else { return }
         let policy: NSApplication.ActivationPolicy = showsInDock ? .regular : .accessory
         guard NSApp.activationPolicy() != policy else { return }
         NSApp.setActivationPolicy(policy)
