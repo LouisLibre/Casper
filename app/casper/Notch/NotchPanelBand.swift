@@ -1,14 +1,12 @@
 //
 //  NotchPanelBand.swift
 //
-//  Click target for the band: the strip along the top of the expanded
-//  shape that holds the corner buttons. A click anywhere in it collapses
-//  the notch, as a click on the pill does while collapsed. It sits under
-//  the pill and the corner controls, so those take their clicks first.
-//  Hidden while collapsed, so it takes no clicks then.
+//  Windows and hit targets for the top strip. Empty band space toggles
+//  the notch; the pill and the corner buttons take their own clicks first.
 //
 
 import AppKit
+import SwiftUI
 
 /// Owns the band's drawing and controls, never the keyboard. Its frame is
 /// only the menu-bar-height strip; shortcut badges below it stay in the
@@ -46,4 +44,10 @@ final class NotchPanelBand: NSView {
     override func mouseDown(with event: NSEvent) { onClick?() }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// Drawing never claims a click. The band, pill and buttons above it own
+/// interaction, including transparent space inside their hit rectangles.
+final class NotchBandDrawingHost: NSHostingView<AnyView> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

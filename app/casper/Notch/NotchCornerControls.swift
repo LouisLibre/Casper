@@ -47,17 +47,9 @@ struct NotchCornerControls: View {
     /// How wide the rectangle that holds these controls is, measured from
     /// the right edge of the expanded notch.
     ///
-    /// A SwiftUI view like this one is always drawn inside an AppKit view.
-    /// Here that AppKit view is `NotchCornerControlsHost`, a plain
-    /// rectangle placed at the top-right corner of the expanded notch. It
-    /// sits on top of the terminal so the badges can be seen. macOS gives
-    /// a click to the topmost view whose rectangle contains it, and this
-    /// rectangle is on top, so it would take every click inside it, even
-    /// where nothing is drawn. So the host only claims clicks in the part
-    /// of the band that holds the buttons (`buttonsWidth`), and that part
-    /// has to stay small: much wider, at the smallest notch size it would
-    /// reach the pill (the clickable strip around the physical notch) and
-    /// the pill would stop reacting to clicks.
+    /// This reserves room for buttons and badges, not a click target.
+    /// The host routes clicks only to the actual button rectangles; its
+    /// padding and the gaps between controls belong to the band underneath.
     ///
     /// The value is not computed because the sizes involved come from
     /// font rendering, not from constants in this file. They were measured
@@ -69,11 +61,6 @@ struct NotchCornerControls: View {
     /// beside its capsule, so past the buttons come the gap to it (6) and
     /// the badge (30), for 180. Rounded up to 190 to leave some room.
     static let width: CGFloat = 190
-    /// The right part of the band that holds the three buttons, the only
-    /// part of the rectangle that takes clicks: 144 (see `width`), rounded
-    /// up to leave some room.
-    static let buttonsWidth: CGFloat = 152
-    
     /// How far the rectangle that holds these controls extends below the
     /// band.
     ///
@@ -236,40 +223,97 @@ struct NotchCornerControls: View {
         }
 
         var body: some View {
-            Button(action: action) {
-                face(hovering)
-                    .opacity(showsFace ? opacity : 0)
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .focusable(false)
-            .accessibilityLabel(label)
-            .toolTip(label)
-            .onHover { hovering = $0 }
-            .animation(.easeOut(duration: 0.12), value: hovering)
-            // The badge hangs under the button, or sits beside it. As an
-            // overlay it takes no part in layout, so the buttons never shift
-            // when it comes and goes; nor in clicks, so what is under it
-            // keeps them. The guides that move it out from under the button
-            // sit on the stack, not the badge: set inside the `if` they
-            // would not reach the overlay. Only the guide for the placement
-            // in use is consulted.
-            .overlay(alignment: hintPlacement == .below ? .bottom : .leading) {
-                VStack(spacing: NotchCornerControls.hintGap) {
-                    if let keyHint {
-                        KeyBadge(key: keyHint).fixedSize()
-                    }
-                    if let chordHint {
-                        KeyBadge(modifiers: "", key: chordHint).fixedSize()
+            face(hovering)
+                .opacity(showsFace ? opacity : 0)
+                .accessibilityHidden(true)
+                .overlay {
+                    if showsFace {
+                        CornerButtonTarget(label: label, action: action,
+                                           onHover: { hovering = $0 })
                     }
                 }
-                .alignmentGuide(.bottom) { $0[.top] - NotchCornerControls.hintGap }
-                .alignmentGuide(.leading) { $0[.trailing] + NotchCornerControls.hintGap }
-                .allowsHitTesting(false)
-            }
-            .animation(.easeOut(duration: 0.12), value: keyHint)
+                .animation(.easeOut(duration: 0.12), value: hovering)
+                // The badge hangs under the button, or sits beside it. As an
+                // overlay it takes no part in layout, so the buttons never shift
+                // when it comes and goes; nor in clicks, so what is under it
+                // keeps them. The guides that move it out from under the button
+                // sit on the stack, not the badge: set inside the `if` they
+                // would not reach the overlay. Only the guide for the placement
+                // in use is consulted.
+                .overlay(alignment: hintPlacement == .below ? .bottom : .leading) {
+                    VStack(spacing: NotchCornerControls.hintGap) {
+                        if let keyHint {
+                            KeyBadge(key: keyHint).fixedSize()
+                        }
+                        if let chordHint {
+                            KeyBadge(modifiers: "", key: chordHint).fixedSize()
+                        }
+                    }
+                    .alignmentGuide(.bottom) { $0[.top] - NotchCornerControls.hintGap }
+                    .alignmentGuide(.leading) { $0[.trailing] + NotchCornerControls.hintGap }
+                    .allowsHitTesting(false)
+                }
+                .animation(.easeOut(duration: 0.12), value: keyHint)
         }
     }
+}
+
+/// SwiftUI supplies the face and its size; AppKit supplies a solid button
+/// rectangle, independent of gaps in the lettering or the mascot's eyes.
+private struct CornerButtonTarget: NSViewRepresentable {
+    @EnvironmentObject private var controller: AppRootController
+    let label: String
+    let action: () -> Void
+    let onHover: (Bool) -> Void
+
+    func makeNSView(context: Context) -> NotchBandButton {
+        NotchBandButton(frame: .zero)
+    }
+
+    func updateNSView(_ button: NotchBandButton, context: Context) {
+        button.onClick = action
+        button.onHover = onHover
+        button.isEnabled = controller.isExpanded
+        button.toolTip = controller.isExpanded ? label : nil
+        button.setAccessibilityLabel(label)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NotchBandButton, context: Context) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        return CGSize(width: width, height: height)
+    }
+}
+
+final class NotchBandButton: NSButton {
+    var onClick: (() -> Void)?
+    var onHover: ((Bool) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        title = ""
+        isTransparent = true
+        refusesFirstResponder = true
+        focusRingType = .none
+        target = self
+        action = #selector(activate)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    @objc private func activate() { onClick?() }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero,
+                                      options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                      owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
 }
 
 private extension View {
@@ -310,12 +354,9 @@ private extension View {
     }
 }
 
-/// Hosts the corner controls above the panes, in the top-right corner of
-/// the expanded shape. Only the right part of the band at its top takes
-/// clicks, where the buttons are; the rest of the view is the room for
-/// the badges, beside the buttons and under them over the pane, and
-/// clicks there fall through to whatever is below. Needed because a
-/// hosting view otherwise claims every click in its frame, badge or not.
+/// Only native button rectangles take clicks. Empty space around them
+/// falls through to the band's toggle target; the badges below the band
+/// fall through to the terminal. No SwiftUI hosting surface swallows gaps.
 final class NotchCornerControlsHost: NSHostingView<AnyView> {
     /// Height of the band at the top of the view.
     var bandHeight: CGFloat = 0
@@ -327,9 +368,19 @@ final class NotchCornerControlsHost: NSHostingView<AnyView> {
         guard takesClicks else { return nil }
         let local = convert(point, from: superview)
         let distanceFromTop = isFlipped ? local.y : bounds.height - local.y
-        let distanceFromRight = bounds.width - local.x
-        guard distanceFromTop <= bandHeight,
-              distanceFromRight <= NotchCornerControls.buttonsWidth else { return nil }
-        return super.hitTest(point)
+        guard bounds.contains(local), distanceFromTop <= bandHeight else { return nil }
+        return button(at: point, in: self)
+    }
+
+    private func button(at point: NSPoint, in view: NSView) -> NotchBandButton? {
+        guard !view.isHidden, view.alphaValue > 0 else { return nil }
+        if let button = view as? NotchBandButton, button.isEnabled,
+           button.bounds.contains(button.convert(point, from: superview)) {
+            return button
+        }
+        for child in view.subviews.reversed() {
+            if let button = button(at: point, in: child) { return button }
+        }
+        return nil
     }
 }

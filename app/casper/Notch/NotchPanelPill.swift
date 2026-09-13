@@ -39,7 +39,9 @@ final class NotchPanelPill: NSView {
 
     /// Icon is decorative — every click in the pill (including on the icon) expands/collapses.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        super.hitTest(point) == nil ? nil : self
+        guard !isHiddenOrHasHiddenAncestor,
+              bounds.contains(convert(point, from: superview)) else { return nil }
+        return self
     }
     
     override func updateTrackingAreas() {

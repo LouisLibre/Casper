@@ -626,7 +626,10 @@ final class AppRootController: ObservableObject {
         let expandedShape = shapeRectInPaneSpace(for: expandedSize, of: pane)
 
         pill?.setIconVisible(!expanded, animated: true)
-        band?.isHidden = !expanded
+        if let bandWindow = panel.bandWindow {
+            band?.frame = bandFrame(in: bandWindow.frame)
+        }
+        cornerControls?.takesClicks = expanded
         resizeHandle?.isHidden = !expanded
         if expanded {
             // An explicit click or chord takes precedence over startup.
@@ -831,19 +834,22 @@ final class AppRootController: ObservableObject {
         // thin frame, so both slices follow exactly the same shape spring.
         let bandWindow = NotchBandPanel(contentRect: bandWindowFrame(in: frame))
         let bandContainer = NSView(frame: NSRect(origin: .zero, size: bandWindow.frame.size))
-        let bandDrawing = NSHostingView(rootView: AnyView(NotchPanelBody(region: .band).environmentObject(self)))
+        let bandDrawing = NotchBandDrawingHost(rootView: AnyView(
+            NotchPanelBody(region: .band).environmentObject(self)
+        ))
         bandDrawing.sizingOptions = []
         bandDrawing.safeAreaRegions = []
         bandDrawing.frame = bandDrawingFrame(in: frame)
         bandContainer.addSubview(bandDrawing)
         self.bandDrawing = bandDrawing
 
-        // The band along the top of the expanded shape collapses on click,
-        // as the pill does. Under the pill and the corner controls, which
-        // take their own clicks first. Hidden while collapsed.
+        // Empty band space toggles either state. Its hit rectangle follows
+        // the visible strip's width, below the pill and the real buttons.
         let band = NotchPanelBand(frame: bandFrame(in: bandWindow.frame))
-        band.isHidden = true
-        band.onClick = { [weak self] in self?.collapse() }
+        band.onClick = { [weak self] in
+            guard let self else { return }
+            self.setExpanded(!self.isExpanded)
+        }
         bandContainer.addSubview(band)
         self.band = band
 
@@ -884,6 +890,7 @@ final class AppRootController: ObservableObject {
         corner.sizingOptions = []
         corner.safeAreaRegions = []
         corner.bandHeight = collapsedSize.height
+        corner.takesClicks = isExpanded
         corner.frame = cornerControlsFrame(in: bandWindow.frame)
         bandContainer.addSubview(corner)
         cornerControls = corner
@@ -958,13 +965,14 @@ final class AppRootController: ObservableObject {
                       height: size.height)
     }
 
-    /// The band along the top of the expanded shape: as wide as the shape
-    /// and as tall as the collapsed strip, right above the pane.
+    /// Empty space in the current strip toggles it. While collapsed the
+    /// invisible space either side must remain available to the menu bar.
     private func bandFrame(in panelFrame: NSRect) -> NSRect {
-        let sideMargin = (panelFrame.width - expandedSize.width) / 2
+        let width = isExpanded ? expandedSize.width : collapsedSize.width
+        let sideMargin = (panelFrame.width - width) / 2
         return NSRect(x: sideMargin,
                       y: panelFrame.height - collapsedSize.height,
-                      width: expandedSize.width,
+                      width: width,
                       height: collapsedSize.height)
     }
 

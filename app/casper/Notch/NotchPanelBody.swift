@@ -97,8 +97,10 @@ struct NotchPanelBody: View {
                 // The window clips this to the top strip. Use the very same
                 // shape, size and springs as the body, including the pill's
                 // hover swell, without another glass backdrop behind it.
+                // Keep this fill hit-testable: disabling it makes the band's
+                // black pixels click-through at the window level, before
+                // AppKit can route the click to our band and button targets.
                 shape.fill(.black).notchSized(size, expanding: controller.isExpanded)
-                    .allowsHitTesting(false)
             }
 
             shape
