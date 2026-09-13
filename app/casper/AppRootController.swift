@@ -23,6 +23,8 @@
 //    - ⌘Tab (or a click) to another app          -> collapse, unless pinned, once the other
 //                                                   app takes focus. Browsing or cancelling
 //                                                   the switcher leaves the notch open
+//    - switching Spaces                         -> preserve the expanded state, even if
+//                                                   macOS activates an app on the new Space
 //    - Show in Dock, in settings                  -> the Dock icon and, with it, the ⌘Tab entry
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - drag the bottom edge or a bottom corner    -> step the expanded size along with the
@@ -150,6 +152,7 @@ final class AppRootController: ObservableObject {
     /// Activation notifications can arrive before the workspace's cached
     /// frontmost app changes, especially on the first activation after launch.
     private var frontmostAppObservation: NSKeyValueObservation?
+    private let autoCollapseCoordinator = AutoCollapseCoordinator()
     /// The app the user was in before Casper became active, to hand
     /// activation back to when the notch collapses from inside.
     private var previousApp: NSRunningApplication?
@@ -516,10 +519,20 @@ final class AppRootController: ObservableObject {
             name: NSApplication.didResignActiveNotification,
             object: nil
         )
+        
+        // Message A: “Another application became active.”
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
-            selector: #selector(workspaceAppDidActivate),
+            selector: #selector(appDidActivate),
             name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+        
+        // Message B: “The user changed Spaces.”
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(spaceDidChange),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil
         )
         // If both activation callbacks see the old frontmost app, neither
@@ -618,6 +631,7 @@ final class AppRootController: ObservableObject {
     }
 
     private func setExpanded(_ expanded: Bool) {
+        autoCollapseCoordinator.cancel()
         guard expanded != isExpanded, let panel, let pane = activePane else { return }
         isExpanded = expanded
         panel.systemAlerts.setExpanded(expanded)
@@ -661,6 +675,7 @@ final class AppRootController: ObservableObject {
         guard NSApp.modalWindow == nil, panel?.systemAlerts.isYielding != true,
               let frontmost = NSWorkspace.shared.frontmostApplication,
               Self.isCasper(frontmost) else { return }
+        autoCollapseCoordinator.cancel()
         if isLaunching {
             yieldActivation()
             return
@@ -678,6 +693,7 @@ final class AppRootController: ObservableObject {
     /// expansion, including with an accessory (Dock-hidden) policy, so the
     /// completed switch away always deactivates it.
     private func focusExpandedPanel() {
+        autoCollapseCoordinator.cancel()
         panel?.systemAlerts.refresh()
         guard panel?.systemAlerts.isYielding != true else { return }
         if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost),
@@ -694,7 +710,7 @@ final class AppRootController: ObservableObject {
     /// Resigning alone doesn't identify where activation is going. macOS
     /// sends this before a permission helper's window is in the window list,
     /// so collapsing here would stop the alert monitor before it can yield.
-    /// `workspaceAppDidActivate` handles collapse once the destination is known.
+    /// `appDidActivate` handles collapse once the destination is known.
     @objc private func appDidResignActive() {
         applyActivationPolicy()
     }
@@ -703,24 +719,50 @@ final class AppRootController: ObservableObject {
     /// cannot bring an older app back over the one the user just selected.
     /// The workspace also confirms activation when Casper already held
     /// nonactivating key focus and AppKit may not report becoming active again.
-    @objc private func workspaceAppDidActivate(_ notification: Notification) {
+    ///
+    /// Handles:
+    /// A CMD+Tab into another app or into Casper.
+    /// Clicking another app or into casper.
+    /// Switching Spaces when that activates an app there.
+    @objc private func appDidActivate(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        // cancel any previous scheduled collapss
+        autoCollapseCoordinator.cancel()
+        
+        // Case 1: IT IS CASPER
         if Self.isCasper(app) {
             appDidBecomeActive()
             return
         }
+        
+        // Case 2: IT IS PERMISSION ALERTS
         // Permission helpers are a temporary interruption, not the app to
         // activate when the user later collapses Casper.
         if SystemAlertMonitor.isSystemDialogHost(app) {
             panel?.systemAlerts.refresh()
             return
         }
+        
         previousApp = app
-        collapseForAppSwitch()
+        
+        // Case 3: Casper may receive this notifications of other apps becoming active from mac os
+        // even when its collapsed, nothing for us to do here so just better ignore
+        guard isExpanded else { return }
+        
+        // Case 3: OTHER APP ACTIVATED ( VIA CMD+TAB OR CLICK OR SPACE SWITCHING )
+        autoCollapseCoordinator.otherAppDidActivate { [weak self] in
+            guard let self, self.isExpanded,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else { return }
+            self.collapseForAppSwitch()
+        }
     }
 
-    /// Every completed switch away collapses, unless pinned or an alert
-    /// holds the app active. Dock-policy changes only run while collapsed.
+    @objc private func spaceDidChange() {
+        autoCollapseCoordinator.spaceDidChange()
+    }
+
+    /// A completed switch away, with no accompanying Space change, collapses
+    /// unless pinned or an alert holds the app active.
     private func collapseForAppSwitch() {
         panel?.systemAlerts.refresh()
         guard NSApp.modalWindow == nil, panel?.systemAlerts.isYielding != true else { return }
