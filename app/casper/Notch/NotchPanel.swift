@@ -75,9 +75,6 @@ final class NotchPanel: NSPanel {
     /// are not needed.
     var onCommandShortcut: (() -> Void)?
 
-    /// Called whenever the panel stops being key, whoever took it.
-    var onResignKey: (() -> Void)?
-
     // Borderless windows refuse key status unless we opt in — the terminal needs keyboard input.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -106,7 +103,6 @@ final class NotchPanel: NSPanel {
     override func resignKey() {
         super.resignKey()
         onCommandKeyChange?(false)
-        onResignKey?()
     }
 
     override func sendEvent(_ event: NSEvent) {

@@ -72,7 +72,7 @@ final class AppRootController: ObservableObject {
     @Published private(set) var opensAtLogin = LoginItem.isEnabled
     /// Whether Casper has a Dock icon. macOS ties the Dock icon to the
     /// ⌘Tab entry, so this is also whether ⌘Tab can switch to Casper.
-    /// Saved; on until turned off.
+    /// Saved; on until turned off. Changes apply once collapsed and inactive.
     @Published private(set) var showsInDock = true
     private static let showsInDockKey = "showsInDock"
 
@@ -126,18 +126,15 @@ final class AppRootController: ObservableObject {
 
     private var geometry: AppGeometryReader?
     private var globalClickMonitor: Any?
+    /// Activation notifications can arrive before the workspace's cached
+    /// frontmost app changes, especially on the first activation after launch.
+    private var frontmostAppObservation: NSKeyValueObservation?
     /// The app the user was in before Casper became active, to hand
     /// activation back to when the notch collapses from inside.
     private var previousApp: NSRunningApplication?
     /// Set until launch settles or the user explicitly opens the notch.
     private var isSettlingAfterLaunch = true
     private static let launchSettleDelay: Duration = .seconds(2)
-    /// Runs until focus is restored after an activation policy change. It takes
-    /// the panel's key status away, at once or up to a second later, and
-    /// deactivates the app when it was active. Neither is the user leaving.
-    private var activationPolicyChange: Task<Void, Never>?
-    private static let activationPolicySettleDelay: Duration = .seconds(2)
-    private var isChangingActivationPolicy: Bool { activationPolicyChange != nil }
     private let toggleChord = ToggleChordMonitor()
     /// Runs from an outside left press until the button comes up again.
     private var releaseWatcher: Timer?
@@ -483,6 +480,16 @@ final class AppRootController: ObservableObject {
             name: NSWorkspace.didActivateApplicationNotification,
             object: nil
         )
+        // If both activation callbacks see the old frontmost app, neither
+        // can open Casper. Observe the actual change as well, then recheck
+        // on the main queue so a newer switch away cannot steal focus back.
+        frontmostAppObservation = NSWorkspace.shared.observe(\.frontmostApplication, options: [.new]) { [weak self] _, change in
+            guard let app = change.newValue ?? nil,
+                  app.processIdentifier == ProcessInfo.processInfo.processIdentifier else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.appDidBecomeActive()
+            }
+        }
         if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost) {
             previousApp = frontmost
         }
@@ -580,6 +587,7 @@ final class AppRootController: ObservableObject {
             panel.makeFirstResponder(nil)
             panel.resignKey()
             yieldActivation()
+            applyActivationPolicy()
         }
     }
 
@@ -593,6 +601,7 @@ final class AppRootController: ObservableObject {
         // AppKit can report a nonactivating panel as active while another
         // app is still frontmost. A click/chord opens it through setExpanded;
         // only real app activation (⌘Tab/Dock) opens it through this path.
+        // The frontmost-app observation retries once that state catches up.
         guard NSApp.modalWindow == nil,
               let frontmost = NSWorkspace.shared.frontmostApplication,
               Self.isCasper(frontmost) else { return }
@@ -627,6 +636,7 @@ final class AppRootController: ObservableObject {
     /// in another app.
     @objc private func appDidResignActive() {
         collapseForAppSwitch()
+        applyActivationPolicy()
     }
 
     /// Remember the destination before collapsing, so yielding activation
@@ -643,10 +653,10 @@ final class AppRootController: ObservableObject {
         collapseForAppSwitch()
     }
 
-    /// Not while pinned, while an alert holds the app active, or while a
-    /// policy change shuffles activation on its own.
+    /// Every completed switch away collapses, unless pinned or an alert
+    /// holds the app active. Dock-policy changes only run while collapsed.
     private func collapseForAppSwitch() {
-        guard NSApp.modalWindow == nil, !isPinned, !isChangingActivationPolicy else { return }
+        guard NSApp.modalWindow == nil, !isPinned else { return }
         if NSEvent.pressedMouseButtons & 1 != 0 {
             collapseWhenReleasedOutside()
             return
@@ -667,37 +677,15 @@ final class AppRootController: ObservableObject {
         _ = previousApp.activate(from: .current, options: [])
     }
 
-    /// Regular apps have a Dock icon and a ⌘Tab entry, accessory apps
-    /// neither. Not before launch settles (see start()).
+    /// Changing Dock policy while active can deactivate the app later. Apply
+    /// it only while collapsed and inactive, so no focus-restoration task can
+    /// mistake the user's next switch away for part of the policy change.
+    /// A preference changed while open is applied on collapse/deactivation.
     private func applyActivationPolicy() {
-        guard !isSettlingAfterLaunch else { return }
+        guard !isSettlingAfterLaunch, !isExpanded, !NSApp.isActive else { return }
         let policy: NSApplication.ActivationPolicy = showsInDock ? .regular : .accessory
         guard NSApp.activationPolicy() != policy else { return }
-        activationPolicyChange?.cancel()
-        activationPolicyChange = nil
-        if isExpanded {
-            activationPolicyChange = Task { [weak self] in
-                try? await Task.sleep(for: Self.activationPolicySettleDelay)
-                guard !Task.isCancelled else { return }
-                self?.activationPolicyChange = nil
-            }
-        }
         NSApp.setActivationPolicy(policy)
-    }
-
-    /// Restore focus after a Dock-policy change, once the deactivation
-    /// that may come with it has landed. Ordinary focus transfers, such as
-    /// a confirmation dialog, are handled by their own activation paths.
-    private func panelDidResignKey() {
-        guard isChangingActivationPolicy, isExpanded else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isExpanded, NSApp.modalWindow == nil else { return }
-            self.focusExpandedPanel()
-            // Once focus is back, a subsequent loss is a real switch,
-            // even inside the policy change's fallback timeout.
-            self.activationPolicyChange?.cancel()
-            self.activationPolicyChange = nil
-        }
     }
 
     /// Frame of the black shape at a given size, converted into the pane
@@ -754,9 +742,6 @@ final class AppRootController: ObservableObject {
         }
         panel.onCommandShortcut = { [weak self] in
             self?.dismissShortcutHintsForHold()
-        }
-        panel.onResignKey = { [weak self] in
-            self?.panelDidResignKey()
         }
         let panelBody = NotchPanelBody().environmentObject(self)
 

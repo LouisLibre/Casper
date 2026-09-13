@@ -68,7 +68,7 @@ struct NotchSettingsPane: View {
                 }
 
                 SettingsRow(title: "Show in Dock",
-                            detail: "Casper's icon in the Dock, which also lists it in ⌘Tab. Switching to Casper there opens the notch.") {
+                            detail: "Casper's icon in the Dock and ⌘Tab. Switching to Casper opens the notch. Changes take effect when the notch closes.") {
                     Toggle("Show in Dock", isOn: Binding(
                         get: { controller.showsInDock },
                         set: { controller.setShowsInDock($0) }
