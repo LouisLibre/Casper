@@ -529,7 +529,8 @@ final class AppRootController: ObservableObject {
                 self?.appDidBecomeActive()
             }
         }
-        if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost) {
+        if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost),
+           !SystemAlertMonitor.isSystemDialogHost(frontmost) {
             previousApp = frontmost
         }
 
@@ -545,6 +546,8 @@ final class AppRootController: ObservableObject {
             let isRightPress = event.type == .rightMouseDown
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.panel?.systemAlerts.refresh()
+                guard self.panel?.systemAlerts.isYielding != true else { return }
                 if self.isPinned {
                     self.refuseCollapseWhilePinned()
                     return
@@ -586,6 +589,8 @@ final class AppRootController: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.releaseWatcher = nil
+                self.panel?.systemAlerts.refresh()
+                guard self.panel?.systemAlerts.isYielding != true else { return }
                 if !self.expandedShapeScreenRect.contains(NSEvent.mouseLocation) {
                     self.setExpanded(false)
                 }
@@ -608,6 +613,7 @@ final class AppRootController: ObservableObject {
     private func setExpanded(_ expanded: Bool) {
         guard expanded != isExpanded, let panel, let pane = activePane else { return }
         isExpanded = expanded
+        panel.systemAlerts.setExpanded(expanded)
 
         let collapsedShape = shapeRectInPaneSpace(for: collapsedSize, of: pane)
         let expandedShape = shapeRectInPaneSpace(for: expandedSize, of: pane)
@@ -637,11 +643,12 @@ final class AppRootController: ObservableObject {
     /// Not while an alert is up: it needs the app active and keeps the
     /// keyboard until answered.
     @objc private func appDidBecomeActive() {
+        panel?.systemAlerts.refresh()
         // AppKit can report a nonactivating panel as active while another
         // app is still frontmost. A click/chord opens it through setExpanded;
         // only real app activation (⌘Tab/Dock) opens it through this path.
         // The frontmost-app observation retries once that state catches up.
-        guard NSApp.modalWindow == nil,
+        guard NSApp.modalWindow == nil, panel?.systemAlerts.isYielding != true,
               let frontmost = NSWorkspace.shared.frontmostApplication,
               Self.isCasper(frontmost) else { return }
         if isLaunching {
@@ -661,7 +668,10 @@ final class AppRootController: ObservableObject {
     /// expansion, including with an accessory (Dock-hidden) policy, so the
     /// completed switch away always deactivates it.
     private func focusExpandedPanel() {
-        if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost) {
+        panel?.systemAlerts.refresh()
+        guard panel?.systemAlerts.isYielding != true else { return }
+        if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost),
+           !SystemAlertMonitor.isSystemDialogHost(frontmost) {
             previousApp = frontmost
         }
         if NSWorkspace.shared.frontmostApplication.map(Self.isCasper) != true {
@@ -688,6 +698,12 @@ final class AppRootController: ObservableObject {
             appDidBecomeActive()
             return
         }
+        // Permission helpers are a temporary interruption, not the app to
+        // activate when the user later collapses Casper.
+        if SystemAlertMonitor.isSystemDialogHost(app) {
+            panel?.systemAlerts.refresh()
+            return
+        }
         previousApp = app
         collapseForAppSwitch()
     }
@@ -695,7 +711,8 @@ final class AppRootController: ObservableObject {
     /// Every completed switch away collapses, unless pinned or an alert
     /// holds the app active. Dock-policy changes only run while collapsed.
     private func collapseForAppSwitch() {
-        guard NSApp.modalWindow == nil else { return }
+        panel?.systemAlerts.refresh()
+        guard NSApp.modalWindow == nil, panel?.systemAlerts.isYielding != true else { return }
         if isPinned {
             refuseCollapseWhilePinned()
             return

@@ -28,6 +28,8 @@ extension NotchPanel {
     /// Returns true when the user chose `button`. The panel takes key status
     /// back afterwards; the caller decides which view gets focus.
     func confirm(_ message: String, detail: String, button: String) -> Bool {
+        systemAlerts.beginConfirmation()
+        defer { systemAlerts.endConfirmation() }
         let alert = NSAlert()
         alert.messageText = message
         alert.informativeText = detail
@@ -48,11 +50,11 @@ extension NotchPanel {
 
         addChildWindow(window, ordered: .above)
 
-        let alertLevel = NSWindow.Level(rawValue: level.rawValue + 1)
         let raiseAlert: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 guard NSApp.modalWindow === window else { return }
-                window.level = alertLevel
+                self.systemAlerts.refresh()
+                window.level = self.systemAlerts.confirmationLevel
             }
         }
 
@@ -70,7 +72,7 @@ extension NotchPanel {
         defer {
             NotificationCenter.default.removeObserver(activationObserver)
             removeChildWindow(window)
-            makeKeyAndOrderFront(nil)
+            if !systemAlerts.isYielding { makeKeyAndOrderFront(nil) }
         }
 
         // The session also sets the initial modal level. A run-loop block

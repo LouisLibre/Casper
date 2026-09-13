@@ -5,6 +5,12 @@
 import AppKit
 
 final class NotchPanel: NSPanel {
+    static let notchLevel = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+
+    /// macOS owns permission dialogs, so their windows cannot be raised by
+    /// `confirm`. Yield our own window level while one could be covered.
+    lazy var systemAlerts = SystemAlertMonitor(panel: self)
+
     init(contentRect: NSRect) {
         super.init(contentRect: contentRect,
                    styleMask: [.borderless, .nonactivatingPanel],
@@ -27,7 +33,7 @@ final class NotchPanel: NSPanel {
         // Last on purpose: other NSPanel properties (isFloatingPanel is one) will
         // quietly overwrite `level` if you set them after this. statusBar + 1 puts
         // us above the menu bar, which is where the notch lives.
-        level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        level = Self.notchLevel
     }
 
     /// Receives +1 for ⌘⇧+ and -1 for ⌘⇧-. Both keys are matched by the
