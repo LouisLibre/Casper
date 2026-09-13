@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
     <linearGradient id="midnight" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#382e63"/>
-      <stop offset="1" stop-color="#1b1547"/>
+      <stop offset="0" stop-color="#2b2060"/>
+      <stop offset="1" stop-color="#150e42"/>
     </linearGradient>
     <!-- Rim light, as on the Big Sur style icons: lit from the top-left corner and again from
          the bottom-right, dim at the other two corners. One gradient along the diagonal does it:
