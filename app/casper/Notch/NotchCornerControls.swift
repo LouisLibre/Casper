@@ -95,7 +95,7 @@ struct NotchCornerControls: View {
             }
             CornerButton(label: "Quit Casper",
                          keyHint: showsKeyHints ? "Q" : nil,
-                         action: { controller.confirmQuit() }) { _ in
+                         action: { controller.quit() }) { _ in
                 CornerCapsule(symbol: "command", text: "QUIT")
             }
             CornerButton(label: "Collapse",

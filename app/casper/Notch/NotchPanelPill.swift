@@ -82,7 +82,7 @@ struct PillGlyph: View {
 
     /// The ghost's box, as the menu bar icon was sized.
     static let size: CGFloat = 15
-    static let hoverScale: CGFloat = 1.05
+    static let hoverScale: CGFloat = 1.10
     /// From the strip's right edge to the ghost.
     static let trailingPadding: CGFloat = 12
     /// How far above the strip's vertical center the ghost sits.

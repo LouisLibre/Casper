@@ -257,7 +257,7 @@ final class AppRootController: ObservableObject {
     /// about quitting instead, whatever is running in it.
     private func close(_ terminal: NotchTerminalScreen) {
         if terminals.count < 2 {
-            confirmQuit()
+            quit()
             return
         }
         if terminal.needsConfirmClose {
@@ -354,13 +354,19 @@ final class AppRootController: ObservableObject {
         focusActivePane()
     }
 
-    /// Asks before quitting: the shells and anything running in them die
-    /// with the app.
-    func confirmQuit() {
-        let quit = confirm("Quit Casper?",
-                           detail: "Every terminal session and anything running in it will end.",
-                           button: "Quit")
-        if quit { NSApp.terminate(nil) }
+    /// Quits, after asking. The question lives in `shouldQuit`, which the
+    /// app delegate puts in front of every path that terminates the app.
+    func quit() {
+        NSApp.terminate(nil)
+    }
+
+    /// Whether the user is sure: the shells and anything running in them
+    /// die with the app. With no panel to ask through, quitting goes ahead.
+    func shouldQuit() -> Bool {
+        guard panel != nil else { return true }
+        return confirm("Quit Casper?",
+                       detail: "Every terminal session and anything running in it will end.",
+                       button: "Quit")
     }
 
     /// Every confirmation goes through the panel, which owns the one way
@@ -510,7 +516,7 @@ final class AppRootController: ObservableObject {
         let frame = geometry.frame(for: panelSize)
         let panel = NotchPanel(contentRect: frame)
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
-        panel.onQuit = { [weak self] in self?.confirmQuit() }
+        panel.onQuit = { [weak self] in self?.quit() }
         panel.onCollapse = { [weak self] in self?.collapse() }
         panel.onTogglePin = { [weak self] in self?.togglePinned() }
         panel.onShowSettings = { [weak self] in self?.showSettings() }

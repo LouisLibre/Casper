@@ -33,10 +33,9 @@ final class NotchPanel: NSPanel {
     /// both work.
     var onSizeStep: ((Int) -> Void)?
 
-    /// ⌘Q. Taken here so it reaches the same confirmation from every pane:
-    /// the terminal would otherwise swallow it as Ghostty's own quit
-    /// binding, and the settings pane would hand it to the app menu, which
-    /// quits without asking.
+    /// ⌘Q. Taken here so it works from every pane: the terminal would
+    /// otherwise swallow it as Ghostty's own quit binding, and the settings
+    /// pane would hand it to the app menu.
     var onQuit: (() -> Void)?
 
     /// ⌘M. Collapses the notch, the same as the collapse button in the

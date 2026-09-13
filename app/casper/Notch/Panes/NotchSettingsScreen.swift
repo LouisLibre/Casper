@@ -87,7 +87,7 @@ struct NotchSettingsPane: View {
                 SettingsRow(title: "Quit Casper",
                             detail: "Every terminal session and anything running in it will end.") {
                     Button("Quit…") {
-                        controller.confirmQuit()
+                        controller.quit()
                     }
                 }
             }

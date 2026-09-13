@@ -18,6 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
+    /// Every way out ends here: ⌘Q and the quit button through `quit()`,
+    /// the app menu's own ⌘Q, a quit Apple event. The question is asked
+    /// once, in one place.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        rootController.shouldQuit() ? .terminateNow : .terminateCancel
+    }
+
     /// LSUIElement hides the Dock icon and menu bar, so this is the only way to quit.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
