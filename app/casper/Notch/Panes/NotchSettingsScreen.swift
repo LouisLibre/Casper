@@ -67,6 +67,16 @@ struct NotchSettingsPane: View {
                     .labelsHidden()
                 }
 
+                SettingsRow(title: "Show in Dock",
+                            detail: "Casper's icon in the Dock, which also lists it in ⌘Tab. Switching to Casper there opens the notch.") {
+                    Toggle("Show in Dock", isOn: Binding(
+                        get: { controller.showsInDock },
+                        set: { controller.setShowsInDock($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                }
+
                 SettingsRow(title: "Transparent background",
                             detail: "Frosted backdrop behind the terminal. Off makes the shape flat black.") {
                     Toggle("Transparent background", isOn: Binding(
