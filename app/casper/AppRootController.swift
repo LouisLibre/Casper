@@ -60,8 +60,8 @@ final class AppRootController: ObservableObject {
     /// refused because the notch is pinned (a click outside, ⌘Tab or the
     /// Dock) bumps this, and the capsule shakes and glows once per bump.
     @Published private(set) var pinRefusalCount = 0
-    /// One switch away arrives as two notifications (Casper resigning, the
-    /// other app activating), and a click outside as a press plus a switch.
+    /// A click outside can also activate another app, reporting the same
+    /// departure as both a press and a switch.
     /// Refusals while this runs are the same refusal and play nothing.
     private var pinRefusalCooldown: Task<Void, Never>?
     private static let pinRefusalCooldownDuration: Duration = .milliseconds(300)
@@ -544,10 +544,14 @@ final class AppRootController: ObservableObject {
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             let isRightPress = event.type == .rightMouseDown
+            // A button can dismiss the alert before our queued callback
+            // runs. Keep the state at the press as well as the fresh check
+            // below, so that same click cannot collapse an unpinned panel.
+            let wasYieldingToAlert = self?.panel?.systemAlerts.isYielding == true
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.panel?.systemAlerts.refresh()
-                guard self.panel?.systemAlerts.isYielding != true else { return }
+                guard !wasYieldingToAlert, self.panel?.systemAlerts.isYielding != true else { return }
                 if self.isPinned {
                     self.refuseCollapseWhilePinned()
                     return
@@ -681,10 +685,11 @@ final class AppRootController: ObservableObject {
         focusActivePane()
     }
 
-    /// Casper was the active app and the user left it: ⌘Tab, or a click
-    /// in another app.
+    /// Resigning alone doesn't identify where activation is going. macOS
+    /// sends this before a permission helper's window is in the window list,
+    /// so collapsing here would stop the alert monitor before it can yield.
+    /// `workspaceAppDidActivate` handles collapse once the destination is known.
     @objc private func appDidResignActive() {
-        collapseForAppSwitch()
         applyActivationPolicy()
     }
 
