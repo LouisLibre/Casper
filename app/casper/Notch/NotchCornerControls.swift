@@ -26,7 +26,8 @@ struct NotchCornerControls: View {
     /// Distance from the shape's right edge.
     static let padding: CGFloat = 18
     static let spacing: CGFloat = 8
-    /// Height of the two capsules and the ghost, so the three read as one set.
+    /// Height of the two capsules and the ghost's box, so the three read as
+    /// one set. The ghost rests a little over its box (see CollapseMascot).
     static let glyphHeight: CGFloat = 16
     /// The capsules rest dim and go full under the pointer. The mascot
     /// keeps its opacity and looks the other way instead.
@@ -123,9 +124,11 @@ struct NotchCornerControls: View {
     private var showsKeyHints: Bool { controller.showsShortcutHints }
 
     /// The mascot from the collapsed strip, where a click expands the notch;
-    /// here it collapses it. The strip's purple, as tall as the capsules.
-    /// Looks right at rest and glances left under the pointer, on the same
-    /// spring as the strip's mascot. Its opacity never changes.
+    /// here it collapses it. The strip's purple, boxed as tall as the
+    /// capsules. The strip's mascot in reverse: looks right at rest and
+    /// glances left under the pointer, and rests a little over its box and
+    /// shrinks to it under the pointer, by the strip's hover scale and on
+    /// the strip's spring. Its opacity never changes.
     private struct CollapseMascot: View {
         let hovering: Bool
 
@@ -133,6 +136,7 @@ struct NotchCornerControls: View {
             NotchGhostMascot(gaze: hovering ? -1 : 1)
                 .fill(Color(nsColor: NotchPanelPill.glyphColor), style: FillStyle(eoFill: true))
                 .frame(width: NotchCornerControls.glyphHeight, height: NotchCornerControls.glyphHeight)
+                .scaleEffect(hovering ? 1 : PillGlyph.hoverScale)
                 .animation(NotchSpring.hover, value: hovering)
         }
     }
