@@ -9,6 +9,8 @@
 //  solid slot in the capsule's corner holding a chevron that points that way;
 //  a click on the slot scrolls the row a step further that way. Stepping the
 //  shape with ⌘⇧+ / ⌘⇧- widens or narrows the room for tabs along with it.
+//  A right click on a tab brings up a menu: a Finder window at that
+//  terminal's directory, or closing the tab.
 //  After ⌘ is held briefly every control with a shortcut gets a small ⌘ badge over
 //  the corner of its icon: the first nine tabs their number (⌘1 to ⌘9), the
 //  tenth a 0 (⌘0), the plus a T (⌘T) and settings an S (⌘S). ⌘[ and ⌘]
@@ -268,6 +270,8 @@ struct NotchDock: View {
                 // one of the first ten by number; the rest have no key to show.
                 ForEach(tabIDs, id: \.self) { id in
                     let index = tabIDs.firstIndex(of: id) ?? 0
+                    // nil once the controller has closed it and its slot is fading.
+                    let terminal = controller.terminals.first { $0.id == id }
                     let isClosing = closingTabs.contains(id)
                     let isActive = !controller.isShowingSettings && id == controller.activeTerminal?.id
                     let number = (controller.terminals.firstIndex { $0.id == id } ?? index) + 1
@@ -276,8 +280,11 @@ struct NotchDock: View {
                                isOn: isActive,
                                highlighted: isActive,
                                animatesSelectionOnAppear: true) {
-                        if let terminal = controller.terminals.first(where: { $0.id == id }) {
-                            controller.activate(terminal)
+                        if let terminal { controller.activate(terminal) }
+                    }
+                    .contextMenu {
+                        if let terminal {
+                            TabMenu(terminal: terminal)
                         }
                     }
                     .opacity(isClosing ? 0 : 1)
@@ -337,6 +344,27 @@ struct NotchDock: View {
         /// Asks the scroller for `x`, kept within the row's ends.
         private func scroll(to x: CGFloat) {
             request = ScrollRequest(x: min(max(x, 0), rowWidth - width))
+        }
+
+        /// The items of a tab's context menu. Closing is what ⌘W does for
+        /// the active tab, so with one tab left it asks about quitting. The
+        /// menu came up over the SwiftUI body, so afterwards the terminal
+        /// gets the keyboard back.
+        private struct TabMenu: View {
+            @EnvironmentObject private var controller: AppRootController
+            let terminal: NotchTerminalScreen
+
+            var body: some View {
+                Button("Reveal in Finder") {
+                    controller.revealInFinder(terminal)
+                }
+                .disabled(terminal.workingDirectory == nil)
+                Divider()
+                Button("Close Terminal") {
+                    controller.close(terminal)
+                    controller.focusActivePane()
+                }
+            }
         }
 
         /// A solid slot in one of the capsule's corners, with the chevron in

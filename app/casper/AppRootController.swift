@@ -22,6 +22,8 @@
 //                                                   tab's directory, from settings too
 //    - ⌘W                                        -> close the active tab; quit when it is the
 //                                                   only one (after confirming)
+//    - right click on a tab in the dock          -> menu: Finder at that tab's directory,
+//                                                   or close it, as ⌘W would
 //    - ⌘1 to ⌘9, ⌘0 for the tenth                -> switch to that tab, from settings too
 //    - ⌘[ / ⌘]                                   -> previous / next tab, wrapping around; terminal only
 //    - ⌘ held                                    -> the dock and the corner controls show each control's key
@@ -254,8 +256,9 @@ final class AppRootController: ObservableObject {
 
     /// Closes a terminal when others remain to fall back on, asking first if
     /// a process is still running in it. When it is the only one, asks
-    /// about quitting instead, whatever is running in it.
-    private func close(_ terminal: NotchTerminalScreen) {
+    /// about quitting instead, whatever is running in it. ⌘W for the active
+    /// tab, and the dock's context menu for any tab.
+    func close(_ terminal: NotchTerminalScreen) {
         if terminals.count < 2 {
             quit()
             return
@@ -288,6 +291,14 @@ final class AppRootController: ObservableObject {
         // Closing a tab to the left of the active one shifts its index too.
         saveActivePane()
         terminal.close()
+    }
+
+    /// The dock's context menu: a Finder window at the terminal's directory,
+    /// wherever its shell last reported being. Nothing while it has no shell.
+    func revealInFinder(_ terminal: NotchTerminalScreen) {
+        guard let directory = terminal.workingDirectory else { return }
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
+        collapse()
     }
 
     // MARK: - Dock and settings
