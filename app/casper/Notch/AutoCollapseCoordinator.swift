@@ -21,6 +21,18 @@ final class AutoCollapseCoordinator {
         self.commandReleaseWindow = commandReleaseWindow
     }
 
+    /// Command activity may indicate an app switch, so a Space change during
+    /// that activity must not take focus back.
+    /// Use the deadline even when the expiration task has not run yet.
+    var isCommandHeldOrRecentlyReleased: Bool {
+        isCommandPressed || hasRecentCommandRelease
+    }
+
+    private var hasRecentCommandRelease: Bool {
+        cmdRecentlyPressed
+            && commandReleaseDeadline.map { ContinuousClock.now < $0 } == true
+    }
+
     deinit {
         commandExpirationTask?.cancel()
     }
@@ -49,13 +61,13 @@ final class AutoCollapseCoordinator {
         }
     }
 
+    // ok
     /// Runs synchronously. The timer only expires eligibility; it never
     /// schedules a collapse. Consume the release before invoking the callback.
     func otherAppDidActivate(collapse: () -> Void) {
         // A busy main actor may postpone the expiration task. Check the
         // deadline too, so delayed cleanup cannot extend the 200 ms window.
-        let shouldCollapse = cmdRecentlyPressed
-            && commandReleaseDeadline.map { ContinuousClock.now < $0 } == true
+        let shouldCollapse = hasRecentCommandRelease
         cancel()
         guard shouldCollapse else { return }
         collapse()

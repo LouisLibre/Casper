@@ -25,8 +25,8 @@
 //                                                   the switcher leaves the notch open
 //                                                   App activation qualifies only within
 //                                                   200 ms of releasing Command
-//    - switching Spaces                         -> preserve the expanded state, even if
-//                                                   macOS activates an app on the new Space
+//    - switching Spaces                         -> restore typing focus while expanded, unless
+//                                                   Command suggests an app switch or focus was yielded
 //    - Show in Dock, in settings                  -> the Dock icon and, with it, the ⌘Tab entry
 //    - ⌘⇧+ / ⌘⇧- while expanded                 -> step the expanded size
 //    - drag the bottom edge or a bottom corner    -> step the expanded size along with the
@@ -160,6 +160,9 @@ final class AppRootController: ObservableObject {
     /// frontmost app changes, especially on the first activation after launch.
     private var frontmostAppObservation: NSKeyValueObservation?
     private let autoCollapseCoordinator = AutoCollapseCoordinator()
+    /// Space changes may temporarily give another app activation. Keep the
+    /// user's focus request until they collapse or deliberately leave Casper.
+    private var shouldRestoreFocusAfterSpaceChange = false
     /// The app the user was in before Casper became active, to hand
     /// activation back to when the notch collapses from inside.
     private var previousApp: NSRunningApplication?
@@ -272,6 +275,7 @@ final class AppRootController: ObservableObject {
     /// themselves.
     func focusActivePane() {
         panel?.makeFirstResponder(activePane?.inputView)
+        shouldRestoreFocusAfterSpaceChange = isExpanded
     }
 
     /// Opens a terminal in `workingDirectory`, or the home directory when nil.
@@ -449,6 +453,8 @@ final class AppRootController: ObservableObject {
     /// The notch stayed open because it is pinned, so the pin capsule shows
     /// why. Nothing while collapsed, where no capsule is on screen.
     private func refuseCollapseWhilePinned() {
+        // Pinning keeps the panel visible while the user works in another app.
+        shouldRestoreFocusAfterSpaceChange = false
         guard isExpanded, pinRefusalCooldown == nil else { return }
         pinRefusalCount += 1
         pinRefusalCooldown = Task { [weak self] in
@@ -526,12 +532,24 @@ final class AppRootController: ObservableObject {
             name: NSApplication.didResignActiveNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(panelDidBecomeKey),
+            name: NSWindow.didBecomeKeyNotification,
+            object: panel
+        )
         
         // An application became active (including Casper).
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(appDidActivate),
             name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(spaceDidChange),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil
         )
         // If both activation callbacks see the old frontmost app, neither
@@ -655,6 +673,7 @@ final class AppRootController: ObservableObject {
         autoCollapseCoordinator.cancel()
         guard expanded != isExpanded, let panel, let pane = activePane else { return }
         isExpanded = expanded
+        shouldRestoreFocusAfterSpaceChange = expanded
         panel.systemAlerts.setExpanded(expanded)
 
         let collapsedShape = shapeRectInPaneSpace(for: collapsedSize, of: pane)
@@ -734,6 +753,36 @@ final class AppRootController: ObservableObject {
     /// `appDidActivate` handles collapse once the destination is known.
     @objc private func appDidResignActive() {
         applyActivationPolicy()
+    }
+
+    /// Clicking back into a pinned panel can resume typing without changing
+    /// which application macOS considers active.
+    @objc private func panelDidBecomeKey() {
+        guard isExpanded, panel?.isKeyWindow == true else { return }
+        shouldRestoreFocusAfterSpaceChange = true
+    }
+
+    @objc private func spaceDidChange() {
+        guard isExpanded, shouldRestoreFocusAfterSpaceChange else { return }
+        autoCollapseCoordinator.commandKeyChanged(
+            isPressed: NSEvent.modifierFlags.contains(.command)
+        )
+        guard !autoCollapseCoordinator.isCommandHeldOrRecentlyReleased else { return }
+
+        // Let AppKit finish delivering this Space change before requesting
+        // activation. A collapse or deliberate switch away can invalidate it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isExpanded, self.shouldRestoreFocusAfterSpaceChange else { return }
+            self.panel?.systemAlerts.refresh()
+            guard NSApp.modalWindow == nil, self.panel?.systemAlerts.isYielding != true,
+                  NSWorkspace.shared.frontmostApplication.map(SystemAlertMonitor.isSystemDialogHost) != true
+            else { return }
+            self.autoCollapseCoordinator.commandKeyChanged(
+                isPressed: NSEvent.modifierFlags.contains(.command)
+            )
+            guard !self.autoCollapseCoordinator.isCommandHeldOrRecentlyReleased else { return }
+            self.focusExpandedPanel()
+        }
     }
 
     /// Remember the destination before collapsing, so yielding activation

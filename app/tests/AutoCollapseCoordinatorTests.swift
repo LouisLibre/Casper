@@ -13,6 +13,7 @@ struct AutoCollapseCoordinatorTests {
     static func main() async throws {
         let coordinator = AutoCollapseCoordinator()
         var collapses = 0
+        expect(!coordinator.isCommandHeldOrRecentlyReleased, "A plain Space change must allow focus restoration")
 
         coordinator.otherAppDidActivate { collapses += 1 }
         expect(collapses == 0, "Activation without Command use must leave the panel open")
@@ -24,11 +25,14 @@ struct AutoCollapseCoordinatorTests {
         expect(!coordinator.cmdRecentlyPressed, "A release without a preceding press must not arm collapse")
         coordinator.commandKeyChanged(isPressed: true)
         expect(!coordinator.cmdRecentlyPressed, "Holding Command alone must not arm collapse")
+        expect(coordinator.isCommandHeldOrRecentlyReleased, "A Space change while Command is held must not take focus back")
         coordinator.otherAppDidActivate { collapses += 1 }
         expect(collapses == 0, "The eligibility window starts on release, not press")
+        expect(coordinator.isCommandHeldOrRecentlyReleased, "An activation must not forget that Command is still held")
 
         coordinator.commandKeyChanged(isPressed: false)
         expect(coordinator.cmdRecentlyPressed, "Releasing Command arms the window immediately")
+        expect(coordinator.isCommandHeldOrRecentlyReleased, "A Space change before app activation must preserve the switch-away window")
         coordinator.otherAppDidActivate { collapses += 1 }
         expect(collapses == 1, "A qualifying activation must collapse synchronously, without a timer delay")
         expect(!coordinator.cmdRecentlyPressed, "The activation consumes the Command release")
@@ -44,6 +48,7 @@ struct AutoCollapseCoordinatorTests {
         coordinator.commandKeyChanged(isPressed: false)
         try await Task.sleep(for: .milliseconds(300))
         expect(!coordinator.cmdRecentlyPressed, "The default 200 ms window must expire")
+        expect(!coordinator.isCommandHeldOrRecentlyReleased, "A Space change after an old Command shortcut must allow focus restoration")
         coordinator.otherAppDidActivate { collapses += 1 }
         expect(collapses == 1, "An activation after expiry must leave the panel open")
 
@@ -68,6 +73,7 @@ struct AutoCollapseCoordinatorTests {
         coordinator.commandKeyChanged(isPressed: false)
         blockMainActor(for: 0.3)
         expect(coordinator.cmdRecentlyPressed, "This scenario must exercise delayed timer cleanup")
+        expect(!coordinator.isCommandHeldOrRecentlyReleased, "Delayed timer cleanup must not block Space focus restoration after the deadline")
         coordinator.otherAppDidActivate { collapses += 1 }
         expect(collapses == 2, "A busy main actor must not extend eligibility past its deadline")
 
@@ -83,7 +89,7 @@ struct AutoCollapseCoordinatorTests {
         restarted.otherAppDidActivate { collapses += 1 }
         expect(collapses == 3, "A restarted window must still allow immediate collapse")
 
-        print("Passed \(checks) Command-release/activation checks")
+        print("Passed \(checks) Command-release/activation and Space-focus checks")
     }
 
     private static func blockMainActor(for seconds: TimeInterval) {
