@@ -124,7 +124,9 @@ struct NotchDock: View {
         // ride along when the capsule grows or the row scrolls.
         .overlay {
             if showsTerminalOnlyKeyHints {
-                EdgeKeyBadges(stripWidth: stripWidth)
+                if controller.terminals.count > 1 {
+                    EdgeKeyBadges(stripWidth: stripWidth)
+                }
                 if let slot = activeTabSlot {
                     CloseKeyBadge(numberKey: Self.keyHint(forTab: slot.number), slotMaxX: slot.maxX)
                 }
