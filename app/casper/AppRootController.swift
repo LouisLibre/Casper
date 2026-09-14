@@ -23,6 +23,8 @@
 //    - ⌘Tab (or a click) to another app          -> collapse, unless pinned, once the other
 //                                                   app takes focus. Browsing or cancelling
 //                                                   the switcher leaves the notch open
+//                                                   App activation qualifies only within
+//                                                   200 ms of releasing Command
 //    - switching Spaces                         -> preserve the expanded state, even if
 //                                                   macOS activates an app on the new Space
 //    - Show in Dock, in settings                  -> the Dock icon and, with it, the ⌘Tab entry
@@ -149,6 +151,11 @@ final class AppRootController: ObservableObject {
     // Both SwiftUI slices must redraw even when expandedSize stays the same.
     @Published private var geometry: AppGeometryReader?
     private var globalClickMonitor: Any?
+    
+    // Need because for example,
+    // a Command press may start inside Casper while the corresponding release happens after focus has moved elsewhere.
+    private var globalCommandKeyMonitor: Any?
+    private var localCommandKeyMonitor: Any?
     /// Activation notifications can arrive before the workspace's cached
     /// frontmost app changes, especially on the first activation after launch.
     private var frontmostAppObservation: NSKeyValueObservation?
@@ -520,19 +527,11 @@ final class AppRootController: ObservableObject {
             object: nil
         )
         
-        // Message A: “Another application became active.”
+        // An application became active (including Casper).
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(appDidActivate),
             name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
-        
-        // Message B: “The user changed Spaces.”
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(spaceDidChange),
-            name: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil
         )
         // If both activation callbacks see the old frontmost app, neither
@@ -548,6 +547,28 @@ final class AppRootController: ObservableObject {
         if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost),
            !SystemAlertMonitor.isSystemDialogHost(frontmost) {
             previousApp = frontmost
+        }
+
+        // Observe actual Command presses/releases in Casper and other apps.
+        // The panel's hint state resets on focus loss, so it cannot tell us
+        // when Command was physically released. NSEvent monitor callbacks run
+        // on the main thread; handle them here without an extra queue hop.
+        let commandKeyChanged: (NSEvent) -> Void = { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.autoCollapseCoordinator.commandKeyChanged(
+                    isPressed: event.modifierFlags.contains(.command)
+                )
+            }
+        }
+        autoCollapseCoordinator.commandKeyChanged(
+            isPressed: NSEvent.modifierFlags.contains(.command)
+        )
+        globalCommandKeyMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: .flagsChanged, handler: commandKeyChanged
+        )
+        localCommandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            commandKeyChanged(event)
+            return event
         }
 
         // Clicks delivered to *other* apps are by definition outside our panel
@@ -726,11 +747,10 @@ final class AppRootController: ObservableObject {
     /// Switching Spaces when that activates an app there.
     @objc private func appDidActivate(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        // cancel any previous scheduled collapss
-        autoCollapseCoordinator.cancel()
         
         // Case 1: IT IS CASPER
         if Self.isCasper(app) {
+            autoCollapseCoordinator.cancel()
             appDidBecomeActive()
             return
         }
@@ -739,6 +759,7 @@ final class AppRootController: ObservableObject {
         // Permission helpers are a temporary interruption, not the app to
         // activate when the user later collapses Casper.
         if SystemAlertMonitor.isSystemDialogHost(app) {
+            autoCollapseCoordinator.cancel()
             panel?.systemAlerts.refresh()
             return
         }
@@ -750,18 +771,17 @@ final class AppRootController: ObservableObject {
         guard isExpanded else { return }
         
         // Case 3: OTHER APP ACTIVATED ( VIA CMD+TAB OR CLICK OR SPACE SWITCHING )
-        autoCollapseCoordinator.otherAppDidActivate { [weak self] in
-            guard let self, self.isExpanded,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else { return }
+        // Command may already be up before its flagsChanged event reaches us.
+        // Reconcile the live modifier state before checking the release window.
+        autoCollapseCoordinator.commandKeyChanged(
+            isPressed: NSEvent.modifierFlags.contains(.command)
+        )
+        autoCollapseCoordinator.otherAppDidActivate {
             self.collapseForAppSwitch()
         }
     }
 
-    @objc private func spaceDidChange() {
-        autoCollapseCoordinator.spaceDidChange()
-    }
-
-    /// A completed switch away, with no accompanying Space change, collapses
+    /// A switch away following a recent Command release collapses immediately,
     /// unless pinned or an alert holds the app active.
     private func collapseForAppSwitch() {
         panel?.systemAlerts.refresh()
