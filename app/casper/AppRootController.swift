@@ -1030,6 +1030,7 @@ final class AppRootController: ObservableObject {
         panel.bandWindow = bandWindow
         panel.addChildWindow(bandWindow, ordered: .above)
         panel.orderFrontRegardless()
+        panel.enableStationarySpace()
         self.panel = panel
     }
 

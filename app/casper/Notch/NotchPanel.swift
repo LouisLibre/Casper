@@ -11,6 +11,18 @@ final class NotchPanel: NSPanel {
     /// `confirm`. Yield our own window level while one could be covered.
     lazy var systemAlerts = SystemAlertMonitor(panel: self)
 
+    private var overlaySpace: NotchOverlaySpace?
+
+    /// Called once both notch windows have been created and ordered.
+    func enableStationarySpace() {
+        guard overlaySpace == nil else { return }
+        overlaySpace = NotchOverlaySpace(windows: [self] + (bandWindow.map { [$0] } ?? []))
+    }
+
+    func suspendStationarySpace(_ suspended: Bool) {
+        overlaySpace?.setSuspended(suspended)
+    }
+
     /// The thin strip has its own level so it can stay above the menu bar
     /// while the terminal yields to a permission dialog. Attached above us
     /// whenever the levels match; the monitor separates them while yielding.

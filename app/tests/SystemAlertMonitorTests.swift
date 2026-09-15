@@ -1,6 +1,7 @@
 // Run from the repository root:
 // xcrun swiftc -parse-as-library -default-isolation MainActor \
 //   app/casper/Notch/NotchPanel.swift app/casper/Notch/SystemAlertMonitor.swift \
+//   app/casper/Notch/NotchOverlaySpace.swift \
 //   app/tests/SystemAlertMonitorTests.swift -o /tmp/casper-system-alert-tests
 // /tmp/casper-system-alert-tests
 
@@ -12,7 +13,8 @@ struct SystemAlertMonitorTests {
     private static var checks = 0
 
     static func main() {
-        let panel = window(1, pid: 100, level: 26)
+        let notchLevel = NotchPanel.notchLevel.rawValue
+        let panel = window(1, pid: 100, level: notchLevel)
         let permission = window(2, pid: 200, level: 8)
         expect(8, [panel, permission], "A hidden modal permission alert must be detected")
         expect(8, [permission, window(1, pid: 100, level: 7)],
@@ -32,8 +34,10 @@ struct SystemAlertMonitorTests {
             expect(nil, [panel, window(2, pid: 300, level: level)],
                    "Ordinary windows, palettes, Dock, menus, and banners aren't alerts")
         }
-        expect(nil, [panel, window(2, pid: 200, level: 1000)],
+        expect(nil, [panel, window(2, pid: 200, level: notchLevel + 1)],
                "An alert already above the notch needs no level change")
+        expect(notchLevel, [panel, window(2, pid: 200, level: notchLevel)],
+               "A system alert at the notch's level can still be covered")
         expect(nil, [panel, window(2, pid: 200, level: 8, alpha: 0)],
                "An invisible helper window must not keep the panel lowered")
         expect(nil, [panel, window(2, pid: 200, level: 8, frame: .zero)],
@@ -42,10 +46,10 @@ struct SystemAlertMonitorTests {
                                   frame: CGRect(x: 2000, y: -800, width: 260, height: 200))],
                "A dialog on another display that Casper cannot cover is irrelevant")
         let upperDisplay = CGRect(x: -800, y: -1000, width: 752, height: 550)
-        expect(8, [window(1, pid: 100, level: 26, frame: upperDisplay),
+        expect(8, [window(1, pid: 100, level: notchLevel, frame: upperDisplay),
                    window(2, pid: 200, level: 8, frame: upperDisplay.insetBy(dx: 100, dy: 100))],
                "Negative display coordinates use the same window-server coordinate space")
-        expect(8, [panel, window(3, pid: 100, level: 27,
+        expect(8, [panel, window(3, pid: 100, level: notchLevel + 1,
                                 frame: CGRect(x: 800, y: 100, width: 260, height: 200)),
                    window(2, pid: 200, level: 8,
                           frame: CGRect(x: 800, y: 100, width: 260, height: 200))],
@@ -54,7 +58,7 @@ struct SystemAlertMonitorTests {
         expect(nil, [permission], "No onscreen Casper window means no occlusion")
         expect(nil, [panel, [:]], "Incomplete metadata is ignored")
 
-        let band = window(4, pid: 100, level: 26,
+        let band = window(4, pid: 100, level: notchLevel,
                           frame: CGRect(x: 0, y: 0, width: 752, height: 33))
         let centered = window(2, pid: 200, level: 8,
                               frame: CGRect(x: 250, y: 150, width: 260, height: 200))
@@ -79,7 +83,7 @@ struct SystemAlertMonitorTests {
                           frame: CGRect(x: 2000, y: -800, width: 260, height: 200))],
                      "A prompt on another display cannot lower either window")
         expectLevels(.init(panel: 8, band: nil),
-                     [panel, band, window(3, pid: 100, level: 27,
+                     [panel, band, window(3, pid: 100, level: notchLevel + 1,
                                          frame: CGRect(x: 800, y: 100, width: 260, height: 200)),
                       window(2, pid: 200, level: 8,
                              frame: CGRect(x: 800, y: 100, width: 260, height: 200))],
