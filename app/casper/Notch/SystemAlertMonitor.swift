@@ -161,8 +161,12 @@ final class SystemAlertMonitor {
     private func apply(levels: AlertLevels) {
         self.levels = levels
         guard let panel else { return }
-        let suspendOverlay = levels.lowest != nil || confirmationCount > 0
-        if suspendOverlay { panel.suspendStationarySpace(true) }
+        // flickers because it drops the private api overlay
+        // let suspendOverlay = levels.lowest != nil || confirmationCount > 0
+        // this one doesn't flicker:
+        // let suspendOverlay = confirmationCount > 0
+        // we still remove the suspend overlay to avoid flickering for confirm quit
+        // if suspendOverlay { panel.suspendStationarySpace(true) }
         // Compare to the normal notch level when detecting, not the lowered
         // level, or the next poll would miss the alert and oscillate.
         let level = levels.panel.map { NSWindow.Level(rawValue: $0 - 1) } ?? NotchPanel.notchLevel
@@ -184,7 +188,7 @@ final class SystemAlertMonitor {
         for child in panel.confirmationWindows {
             if child.level != confirmationLevel { child.level = confirmationLevel }
         }
-        if !suspendOverlay { panel.suspendStationarySpace(false) }
+        // if !suspendOverlay { panel.suspendStationarySpace(false) }
         // Changing level doesn't activate either app or steal keyboard focus.
     }
 }

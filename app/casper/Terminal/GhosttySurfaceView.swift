@@ -5,8 +5,8 @@
 //  Metal renderer and the shell behind it. Owns the ghostty_surface_t and
 //  translates AppKit input into libghostty calls. Modeled on the Ghostty
 //  app's SurfaceView_AppKit.swift, trimmed to what a single embedded terminal
-//  needs: no splits, menus or services. Tabs are the app's business; the
-//  view only reports the keybinds that ask for them.
+//  needs: no splits or services, just a copy/paste context menu. Tabs are
+//  the app's business; the view only reports the keybinds that ask for them.
 //
 //  libghostty replaces this view's layer with its own render layer and turns
 //  on clipsToBounds while the surface is created, so anything that has to
@@ -380,6 +380,54 @@ final class GhosttySurfaceView: NSView {
         }
     }
 
+    // MARK: - Context menu
+
+    /// Shown by `super.rightMouseDown` when libghostty did not take the
+    /// click itself (a TUI with mouse reporting on gets it instead).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard event.type == .rightMouseDown, surface != nil else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        // AppKit appends AutoFill and Services to context menus of text
+        // input views through its plug-in mechanism; this turns that off.
+        menu.allowsContextMenuPlugIns = false
+
+        // The key equivalents are only hints: Ghostty's own ⌘C / ⌘V bindings
+        // do the work when the menu is closed.
+        let copy = NSMenuItem(title: "Copy", action: #selector(copy(_:)), keyEquivalent: "c")
+        copy.target = self
+        copy.isEnabled = hasSelection
+        menu.addItem(copy)
+
+        let paste = NSMenuItem(title: "Paste", action: #selector(paste(_:)), keyEquivalent: "v")
+        paste.target = self
+        menu.addItem(paste)
+
+        return menu
+    }
+
+    var hasSelection: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_has_selection(surface)
+    }
+
+    @objc func copy(_ sender: Any?) {
+        performBindingAction("copy_to_clipboard")
+    }
+
+    @objc func paste(_ sender: Any?) {
+        performBindingAction("paste_from_clipboard")
+    }
+
+    /// Runs one of Ghostty's keybind actions by name, as if its key were pressed.
+    private func performBindingAction(_ action: String) {
+        guard let surface else { return }
+        let performed = action.withCString {
+            ghostty_surface_binding_action(surface, $0, UInt(action.utf8.count))
+        }
+        if !performed { GhosttyRuntime.logger.warning("binding action failed: \(action, privacy: .public)") }
+    }
+
     // MARK: - Keyboard
 
     /// ⌘ shortcuts arrive here first (NotchPanel runs the key-equivalent pass
@@ -700,14 +748,11 @@ extension GhosttySurfaceView: NSTextInputClient {
     /// Swallows the selectors interpretKeyEvents produces for unhandled keys
     /// (otherwise AppKit beeps); the key still reaches libghostty from keyDown.
     override func doCommand(by selector: Selector) {
-        guard let surface else { return }
-        let action: String
         switch selector {
-        case #selector(NSResponder.moveToBeginningOfDocument(_:)): action = "scroll_to_top"
-        case #selector(NSResponder.moveToEndOfDocument(_:)): action = "scroll_to_bottom"
+        case #selector(NSResponder.moveToBeginningOfDocument(_:)): performBindingAction("scroll_to_top")
+        case #selector(NSResponder.moveToEndOfDocument(_:)): performBindingAction("scroll_to_bottom")
         default: return
         }
-        action.withCString { _ = ghostty_surface_binding_action(surface, $0, UInt(action.utf8.count)) }
     }
 }
 
