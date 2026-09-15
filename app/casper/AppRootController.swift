@@ -87,7 +87,9 @@ final class AppRootController: ObservableObject {
     private var shortcutHintTask: Task<Void, Never>?
     private static let shortcutHintDelay: Duration = .milliseconds(800)
     /// Whether terminals use the frosted backdrop or the theme's solid background.
+    /// Saved; on until turned off.
     @Published private(set) var isTerminalTransparent = true
+    private static let terminalTransparentKey = "terminalTransparent"
     /// Whether Casper is registered to start at login, mirrored from macOS.
     @Published private(set) var opensAtLogin = LoginItem.isEnabled
     /// Whether Casper has a Dock icon. macOS ties the Dock icon to the
@@ -425,6 +427,7 @@ final class AppRootController: ObservableObject {
 
     func toggleTerminalTransparency() {
         isTerminalTransparent.toggle()
+        UserDefaults.standard.set(isTerminalTransparent, forKey: Self.terminalTransparentKey)
         focusActivePane()
     }
 
@@ -509,6 +512,7 @@ final class AppRootController: ObservableObject {
         activeTerminal = terminals[min(max(savedActiveTerminalIndex, 0), terminals.count - 1)]
         isShowingSettings = savedIsShowingSettings
         showsInDock = UserDefaults.standard.object(forKey: Self.showsInDockKey) as? Bool ?? true
+        isTerminalTransparent = UserDefaults.standard.object(forKey: Self.terminalTransparentKey) as? Bool ?? true
 
         NotificationCenter.default.addObserver(
             self,
