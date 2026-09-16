@@ -135,13 +135,17 @@ final class AppRootController: ObservableObject {
     private var panel: NotchPanel?
     /// Every pane's container, placed and clipped by the SwiftUI body.
     let paneHost = NotchPaneHost()
-    /// Parks the panes once a collapse has settled (see `parkPanesAfterCollapse`).
+    /// Parks the panes once the collapsing shape hides them, on systems
+    /// where the host cannot leave hit testing (see `parkPanesAfterCollapse`).
     private var paneParkingTask: Task<Void, Never>?
-    /// Past the spring's settling time, so the panes never vanish while the
-    /// shape still moves. For this long after a collapse the invisible
-    /// terminal area still takes clicks; the click that collapsed the notch
-    /// has already landed, and the next one is rarely this quick.
-    private static let paneParkingMargin: Duration = .milliseconds(100)
+    /// Nothing of a pane shows once the shape's clip, inset 3 points, has
+    /// come within its inset of the pane's top edge. Anti-aliasing softens
+    /// that edge by about half a point; 2 keeps the terminal drawn until
+    /// the last visible row is gone.
+    private static let paneHiddenWithin: CGFloat = 2
+    /// SwiftUI starts the spring up to a display frame after the commit
+    /// (measured), so allow two frames at 120 Hz on top of the spring time.
+    private static let paneParkingMargin: Duration = .milliseconds(16)
     private var pill: NotchPanelPill?
     private var band: NotchPanelBand?
     private var bandDrawing: NSHostingView<AnyView>?
@@ -520,7 +524,7 @@ final class AppRootController: ObservableObject {
         isShowingSettings = savedIsShowingSettings
         activePane?.show()
         // Collapsed at launch: nothing under the pill may take clicks.
-        paneHost.setParked(true)
+        if !paneHost.isOutOfHitTesting { paneHost.setParked(true) }
         showsInDock = UserDefaults.standard.object(forKey: Self.showsInDockKey) as? Bool ?? true
         isTerminalTransparent = UserDefaults.standard.object(forKey: Self.terminalTransparentKey) as? Bool ?? true
 
@@ -694,7 +698,7 @@ final class AppRootController: ObservableObject {
         paneParkingTask?.cancel()
         paneParkingTask = nil
         // Back into hit testing (and view) before the body animates the panes in.
-        if expanded { paneHost.setParked(false) }
+        if expanded, !paneHost.isOutOfHitTesting { paneHost.setParked(false) }
         isExpanded = expanded
         shouldRestoreFocusAfterSpaceChange = expanded
         panel.systemAlerts.setExpanded(expanded)
@@ -713,7 +717,7 @@ final class AppRootController: ObservableObject {
             focusExpandedPanel()
         } else {
             pane.conceal()
-            parkPanesAfterCollapse()
+            if !paneHost.isOutOfHitTesting { parkPanesAfterCollapse() }
             panel.makeFirstResponder(nil)
             panel.resignKey()
             yieldActivation()
@@ -721,16 +725,21 @@ final class AppRootController: ObservableObject {
         }
     }
 
-    /// Once the collapse spring has settled and the panes sit wholly under
-    /// the pill, take them out of the window server's hit testing (see
-    /// `NotchPaneHost.setParked`), so clicks on the invisible terminal area
-    /// reach the app beneath. Not before: the panes must stay drawn under
-    /// the body's mask through the animation. An expand in the meantime
-    /// cancels this and unparks them itself.
+    /// Fallback for when the pane host cannot leave the window server's
+    /// hit testing for good (see `NotchPaneHost`): take the panes out of it
+    /// as soon as the collapsing shape has hidden them, so clicks on the
+    /// invisible terminal area reach the app beneath. Not before: the
+    /// panes must stay drawn under the body's mask while any row of them
+    /// shows. The spring says when that is for the distance the shape's
+    /// bottom edge travels. An expand in the meantime cancels this and
+    /// unparks them itself.
     private func parkPanesAfterCollapse() {
+        let travel = expandedSize.height - collapsedSize.height
+        let delay = NotchSpring.collapseDuration(travel: travel, within: Self.paneHiddenWithin)
+            + Self.paneParkingMargin
         paneParkingTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: NotchSpring.collapseSettlingDuration + Self.paneParkingMargin)
+                try await Task.sleep(for: delay)
             } catch { return }
             guard let self, !Task.isCancelled, !self.isExpanded else { return }
             self.paneHost.setParked(true)

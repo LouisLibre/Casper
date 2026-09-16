@@ -28,11 +28,14 @@ enum NotchSpring {
                 dampingFraction: expanding ? expandDampingFraction : collapseDampingFraction)
     }
 
-    /// How long the collapse spring takes to come to rest. Work that must
-    /// wait until the shape is the pill again (parking the panes, see
-    /// NotchPaneHost.setParked) is scheduled after this.
-    static var collapseSettlingDuration: Duration {
-        .seconds(Spring(response: collapseResponse, dampingRatio: collapseDampingFraction).settlingDuration)
+    /// How long the collapse spring takes to bring the shape's bottom edge
+    /// to within `epsilon` points of the pill, starting `travel` points
+    /// away. When the terminal is out of sight (see
+    /// AppRootController.parkPanesAfterCollapse).
+    static func collapseDuration(travel: CGFloat, within epsilon: CGFloat) -> Duration {
+        let spring = Spring(response: collapseResponse, dampingRatio: collapseDampingFraction)
+        return .seconds(spring.settlingDuration(fromValue: travel, toValue: 0, initialVelocity: 0,
+                                                epsilon: Double(epsilon)))
     }
 
     /// The pill's hover swell: the strip grows a little under the pointer,
