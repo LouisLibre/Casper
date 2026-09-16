@@ -26,7 +26,8 @@ protocol NotchPane: AnyObject {
     /// the terminal's Metal layer must not be hidden and unhidden around
     /// the animation. Unhiding it stalls SwiftUI's animation frames in the
     /// panel for about 200 ms (measured), which showed the terminal well
-    /// ahead of the black shape.
+    /// ahead of the black shape. Once collapsed, the host is parked out of
+    /// hit testing instead (see `NotchPaneHost.setParked`).
     func show()
     /// Takes the pane off screen; another pane took its place.
     func hide()
@@ -81,6 +82,27 @@ final class NotchPaneHost: NSView {
     func add(_ pane: NotchPane) {
         pane.view.frame = bounds
         addSubview(pane.view)
+    }
+
+    /// Takes the panes out of the window server's hit testing while the
+    /// notch is collapsed, and puts them back for the expand.
+    ///
+    /// The body masks the panes out entirely while collapsed, but that is
+    /// SwiftUI's mask on a hosted AppKit view: neither it nor
+    /// `allowsHitTesting(false)` reaches the window server, which kept
+    /// routing every click on the pane's frame (the whole terminal area
+    /// under the pill, measured with `NSWindow.windowNumber(at:)`) to this
+    /// window instead of to the app beneath, where AppKit then dropped or
+    /// fed it to the terminal. The window server does skip hidden,
+    /// zero-opacity and Core Animation-masked layers (all three measured).
+    /// Opacity is used: it leaves the view and its Metal layer alone, so
+    /// nothing is hidden or unhidden around the animation (see
+    /// `NotchPane.show`), and the body's own mask still does the clipping
+    /// while the shape moves. Parked only once the collapse has settled,
+    /// unparked before the expand starts, so the panes are always drawn
+    /// while any of them could show.
+    func setParked(_ parked: Bool) {
+        alphaValue = parked ? 0 : 1
     }
 }
 

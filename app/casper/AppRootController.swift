@@ -135,6 +135,13 @@ final class AppRootController: ObservableObject {
     private var panel: NotchPanel?
     /// Every pane's container, placed and clipped by the SwiftUI body.
     let paneHost = NotchPaneHost()
+    /// Parks the panes once a collapse has settled (see `parkPanesAfterCollapse`).
+    private var paneParkingTask: Task<Void, Never>?
+    /// Past the spring's settling time, so the panes never vanish while the
+    /// shape still moves. For this long after a collapse the invisible
+    /// terminal area still takes clicks; the click that collapsed the notch
+    /// has already landed, and the next one is rarely this quick.
+    private static let paneParkingMargin: Duration = .milliseconds(100)
     private var pill: NotchPanelPill?
     private var band: NotchPanelBand?
     private var bandDrawing: NSHostingView<AnyView>?
@@ -512,6 +519,8 @@ final class AppRootController: ObservableObject {
         activeTerminal = terminals[min(max(savedActiveTerminalIndex, 0), terminals.count - 1)]
         isShowingSettings = savedIsShowingSettings
         activePane?.show()
+        // Collapsed at launch: nothing under the pill may take clicks.
+        paneHost.setParked(true)
         showsInDock = UserDefaults.standard.object(forKey: Self.showsInDockKey) as? Bool ?? true
         isTerminalTransparent = UserDefaults.standard.object(forKey: Self.terminalTransparentKey) as? Bool ?? true
 
@@ -682,6 +691,10 @@ final class AppRootController: ObservableObject {
     private func setExpanded(_ expanded: Bool) {
         autoCollapseCoordinator.cancel()
         guard expanded != isExpanded, let panel, let pane = activePane else { return }
+        paneParkingTask?.cancel()
+        paneParkingTask = nil
+        // Back into hit testing (and view) before the body animates the panes in.
+        if expanded { paneHost.setParked(false) }
         isExpanded = expanded
         shouldRestoreFocusAfterSpaceChange = expanded
         panel.systemAlerts.setExpanded(expanded)
@@ -700,10 +713,28 @@ final class AppRootController: ObservableObject {
             focusExpandedPanel()
         } else {
             pane.conceal()
+            parkPanesAfterCollapse()
             panel.makeFirstResponder(nil)
             panel.resignKey()
             yieldActivation()
             applyActivationPolicy()
+        }
+    }
+
+    /// Once the collapse spring has settled and the panes sit wholly under
+    /// the pill, take them out of the window server's hit testing (see
+    /// `NotchPaneHost.setParked`), so clicks on the invisible terminal area
+    /// reach the app beneath. Not before: the panes must stay drawn under
+    /// the body's mask through the animation. An expand in the meantime
+    /// cancels this and unparks them itself.
+    private func parkPanesAfterCollapse() {
+        paneParkingTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: NotchSpring.collapseSettlingDuration + Self.paneParkingMargin)
+            } catch { return }
+            guard let self, !Task.isCancelled, !self.isExpanded else { return }
+            self.paneHost.setParked(true)
+            self.paneParkingTask = nil
         }
     }
 

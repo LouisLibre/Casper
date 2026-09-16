@@ -28,6 +28,13 @@ enum NotchSpring {
                 dampingFraction: expanding ? expandDampingFraction : collapseDampingFraction)
     }
 
+    /// How long the collapse spring takes to come to rest. Work that must
+    /// wait until the shape is the pill again (parking the panes, see
+    /// NotchPaneHost.setParked) is scheduled after this.
+    static var collapseSettlingDuration: Duration {
+        .seconds(Spring(response: collapseResponse, dampingRatio: collapseDampingFraction).settlingDuration)
+    }
+
     /// The pill's hover swell: the strip grows a little under the pointer,
     /// and the mascot in it looks right and grows too, all on this one
     /// spring. The mascot in the corner glances and shrinks on it as well.
