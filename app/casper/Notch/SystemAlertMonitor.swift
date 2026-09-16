@@ -16,6 +16,17 @@ final class SystemAlertMonitor {
     private var isExpanded = false
     private var confirmationCount = 0
     private var levels = AlertLevels()
+    private var permissionFrames: [CGRect] = []
+
+    /// Called after each successful snapshot, with previous/current visibility.
+    /// Permission lifetime is independent of whether it overlaps the notch.
+    var onPermissionWindowsUpdated: ((_ wereVisible: Bool, _ areVisible: Bool) -> Void)?
+    var hasPermissionWindows: Bool { !permissionFrames.isEmpty }
+
+    /// Uses the same WindowServer coordinates as NSEvent.cgEvent.location.
+    func containsPermissionWindow(at point: CGPoint) -> Bool {
+        permissionFrames.contains { $0.contains(point) }
+    }
 
     struct AlertLevels: Equatable {
         var panel: Int?
@@ -25,6 +36,7 @@ final class SystemAlertMonitor {
     }
 
     var isYielding: Bool { levels.lowest != nil }
+    var isConfirming: Bool { confirmationCount > 0 }
 
     /// A child stays above its parent by ordering, but must stay below an
     /// external alert too. `confirm` also reapplies this after activation.
@@ -70,7 +82,7 @@ final class SystemAlertMonitor {
         // transitions. Poll only while the expanded panel or a child alert
         // can cover them, including inside NSAlert's nested modal run loop.
         let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            MainActor.assumeIsolated { _ = self?.refresh() }
         }
         timer.tolerance = 0.05
         RunLoop.main.add(timer, forMode: .common)
@@ -80,24 +92,47 @@ final class SystemAlertMonitor {
 
     /// Also checked synchronously before activation/collapse handling, so
     /// handing the keyboard to a system alert isn't treated as switching apps.
-    func refresh() {
+    @discardableResult
+    func refresh() -> Bool {
         guard isExpanded || confirmationCount > 0, let panel,
               let windows = CGWindowListCopyWindowInfo(
                 [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-              ) as? [[String: Any]] else { return }
+              ) as? [[String: Any]] else { return false }
 
         let ownIDs = Set(([panel] + panel.confirmationWindows).map { $0.windowNumber })
         var hosts: [pid_t: Bool] = [:]
-        let levels = Self.alertLevels(
-            in: windows, panelIDs: ownIDs, bandID: panel.bandWindow?.windowNumber,
-            ownPID: ProcessInfo.processInfo.processIdentifier
-        ) { pid in
+        func isDialogHost(_ pid: pid_t) -> Bool {
             if let cached = hosts[pid] { return cached }
             let isHost = NSRunningApplication(processIdentifier: pid).map(Self.isSystemDialogHost) ?? false
             hosts[pid] = isHost
             return isHost
         }
-        apply(levels: levels)
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let levels = Self.alertLevels(
+            in: windows, panelIDs: ownIDs, bandID: panel.bandWindow?.windowNumber,
+            ownPID: ownPID, isSystemDialogHost: isDialogHost
+        )
+        let frames = Self.permissionWindowFrames(
+            in: windows, ownPID: ownPID, isSystemDialogHost: isDialogHost
+        )
+        apply(levels: levels, permissionFrames: frames)
+        return true
+    }
+
+    /// Track visible permission-helper windows even when they are moved away
+    /// from Casper or are already above it. Other apps' modal windows still
+    /// affect occlusion, but must not trigger permission-focus restoration.
+    static func permissionWindowFrames(in windows: [[String: Any]], ownPID: pid_t,
+                                       isSystemDialogHost: (pid_t) -> Bool) -> [CGRect] {
+        windows.compactMap { window in
+            guard let pid = window[kCGWindowOwnerPID as String] as? pid_t,
+                  pid != ownPID,
+                  let level = window[kCGWindowLayer as String] as? Int, level >= 0,
+                  let alpha = window[kCGWindowAlpha as String] as? Double, alpha > 0,
+                  let bounds = Self.bounds(of: window), !bounds.isEmpty,
+                  isSystemDialogHost(pid) else { return nil }
+            return bounds
+        }
     }
 
     /// A centered prompt lowers the body alone. A prompt that reaches the
@@ -158,7 +193,9 @@ final class SystemAlertMonitor {
         return CGRect(dictionaryRepresentation: bounds)
     }
 
-    private func apply(levels: AlertLevels) {
+    private func apply(levels: AlertLevels, permissionFrames: [CGRect] = []) {
+        let wereVisible = hasPermissionWindows
+        self.permissionFrames = permissionFrames
         self.levels = levels
         guard let panel else { return }
         // flickers because it drops the private api overlay
@@ -189,6 +226,7 @@ final class SystemAlertMonitor {
             if child.level != confirmationLevel { child.level = confirmationLevel }
         }
         // if !suspendOverlay { panel.suspendStationarySpace(false) }
-        // Changing level doesn't activate either app or steal keyboard focus.
+        // Finish ordering before the controller schedules any focus request.
+        onPermissionWindowsUpdated?(wereVisible, hasPermissionWindows)
     }
 }

@@ -165,6 +165,8 @@ final class AppRootController: ObservableObject {
     /// Space changes may temporarily give another app activation. Keep the
     /// user's focus request until they collapse or deliberately leave Casper.
     private var shouldRestoreFocusAfterSpaceChange = false
+    /// Once a permission flow interrupts typing, restore focus when it ends.
+    private var shouldRestoreFocusAfterPermission = false
     /// The app the user was in before Casper became active, to hand
     /// activation back to when the notch collapses from inside.
     private var previousApp: NSRunningApplication?
@@ -526,7 +528,7 @@ final class AppRootController: ObservableObject {
         // is tracked from launch, before the user first switches apps.
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(appDidBecomeActive),
+            selector: #selector(casperDidBecomeActive),
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
@@ -563,7 +565,7 @@ final class AppRootController: ObservableObject {
             guard let app = change.newValue ?? nil,
                   app.processIdentifier == ProcessInfo.processInfo.processIdentifier else { return }
             DispatchQueue.main.async { [weak self] in
-                self?.appDidBecomeActive()
+                self?.casperDidBecomeActive()
             }
         }
         if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost),
@@ -606,6 +608,11 @@ final class AppRootController: ObservableObject {
             // A button can dismiss the alert before our queued callback
             // runs. Keep the state at the press as well as the fresh check
             // below, so that same click cannot collapse an unpinned panel.
+            // Test cached frames before the click can dismiss the prompt.
+            let isClickInsidePermissionDialog = event.cgEvent.map {
+                self?.panel?.systemAlerts.containsPermissionWindow(at: $0.location) == true
+            } ?? false
+            if isClickInsidePermissionDialog { return }
             let wasYieldingToAlert = self?.panel?.systemAlerts.isYielding == true
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -708,18 +715,20 @@ final class AppRootController: ObservableObject {
 
     /// ⌘Tab or the Dock icon brought Casper forward: open the notch, or
     /// give it the keyboard again if it was already open (pinned, say).
-    /// Not while an alert is up: it needs the app active and keeps the
-    /// keyboard until answered.
-    @objc private func appDidBecomeActive() {
+    /// Casper's own confirmations keep the keyboard. External permission
+    /// dialogs can stay open while the user explicitly returns to Casper.
+    @objc private func casperDidBecomeActive() {
         panel?.systemAlerts.refresh()
         // AppKit can report a nonactivating panel as active while another
         // app is still frontmost. A click/chord opens it through setExpanded;
         // only real app activation (⌘Tab/Dock) opens it through this path.
         // The frontmost-app observation retries once that state catches up.
-        guard NSApp.modalWindow == nil, panel?.systemAlerts.isYielding != true,
+        guard NSApp.modalWindow == nil, panel?.systemAlerts.isConfirming != true,
               let frontmost = NSWorkspace.shared.frontmostApplication,
               Self.isCasper(frontmost) else { return }
         autoCollapseCoordinator.cancel()
+        
+        // If we are launching for the first time, we should yield to not inmediatly expand on first open
         if isLaunching {
             yieldActivation()
             return
@@ -736,10 +745,21 @@ final class AppRootController: ObservableObject {
     /// or key status. Make Casper the actual active app on every explicit
     /// expansion, including with an accessory (Dock-hidden) policy, so the
     /// completed switch away always deactivates it.
-    private func focusExpandedPanel() {
+    /// Automatic restoration waits for external dialogs; a user request can
+    /// focus the terminal while those dialogs remain visible above it.
+    /// Returns whether a focus request was issued, so a deferred attempt can retry.
+    @discardableResult
+    private func focusExpandedPanel(automatically: Bool = false) -> Bool {
+        guard let panel else { return false }
         autoCollapseCoordinator.cancel()
-        panel?.systemAlerts.refresh()
-        guard panel?.systemAlerts.isYielding != true else { return }
+        let alerts = panel.systemAlerts
+        let refreshed = alerts.refresh()
+        guard NSApp.modalWindow == nil, !alerts.isConfirming else { return false }
+        if automatically {
+            guard refreshed, !alerts.isYielding, !alerts.hasPermissionWindows,
+                  NSWorkspace.shared.frontmostApplication.map(SystemAlertMonitor.isSystemDialogHost) != true
+            else { return false }
+        }
         if let frontmost = NSWorkspace.shared.frontmostApplication, !Self.isCasper(frontmost),
            !SystemAlertMonitor.isSystemDialogHost(frontmost) {
             previousApp = frontmost
@@ -747,8 +767,53 @@ final class AppRootController: ObservableObject {
         if NSWorkspace.shared.frontmostApplication.map(Self.isCasper) != true {
             NSApp.activate(ignoringOtherApps: true)
         }
-        panel?.makeKeyAndOrderFront(nil)
+        panel.makeKeyAndOrderFront(nil)
         focusActivePane()
+        return true
+    }
+
+    // A permission flow interrupted Casper typing focus. Return that focus when the flow finishes,
+    // provided Casper stays expanded. Called by onPermissionWindowsUpdated as a callback
+    //
+    // wereVisible: the monitor previously had at least one permission window
+    // areVisible: the latest snapshot has at least one permission window
+    // wereVisible | areVisible | meaning
+    // false       | true       | (1) Permission UI appeared
+    // true        | true       | (2) Permission UI remains visible
+    // true        | false      | (3) No permission windows remain in this snapshot
+    // false       | false      | (4) No permissions windows at all
+    private func permissionWindowsUpdated(wereVisible: Bool, areVisible: Bool) {
+        guard isExpanded else {
+            shouldRestoreFocusAfterPermission = false
+            return
+        }
+        
+        
+        if areVisible {
+            // Case (1)
+            if !wereVisible {
+                // This intent survives temporary key-window loss. Looking at
+                // isKeyWindow now would be too late: the helper may own it.
+                // Preserve it across consecutive prompts in the same flow.
+                shouldRestoreFocusAfterPermission = shouldRestoreFocusAfterPermission
+                    || shouldRestoreFocusAfterSpaceChange
+            }
+            // Case (1) + (2)
+            return
+        }
+        // Case (3) + (4) continue to restore focus now that there are no more permission windows
+        
+        guard shouldRestoreFocusAfterPermission else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.shouldRestoreFocusAfterPermission else { return }
+            // Consume before refreshing, so its callback cannot queue another
+            // attempt. An unfinished dialog simply retries on the next poll.
+            self.shouldRestoreFocusAfterPermission = false
+            guard self.isExpanded else { return }
+            if !self.focusExpandedPanel(automatically: true) {
+                self.shouldRestoreFocusAfterPermission = true
+            }
+        }
     }
 
     /// Resigning alone doesn't identify where activation is going. macOS
@@ -777,15 +842,11 @@ final class AppRootController: ObservableObject {
         // activation. A collapse or deliberate switch away can invalidate it.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isExpanded, self.shouldRestoreFocusAfterSpaceChange else { return }
-            self.panel?.systemAlerts.refresh()
-            guard NSApp.modalWindow == nil, self.panel?.systemAlerts.isYielding != true,
-                  NSWorkspace.shared.frontmostApplication.map(SystemAlertMonitor.isSystemDialogHost) != true
-            else { return }
             self.autoCollapseCoordinator.commandKeyChanged(
                 isPressed: NSEvent.modifierFlags.contains(.command)
             )
             guard !self.autoCollapseCoordinator.isCommandHeldOrRecentlyReleased else { return }
-            self.focusExpandedPanel()
+            self.focusExpandedPanel(automatically: true)
         }
     }
 
@@ -804,7 +865,7 @@ final class AppRootController: ObservableObject {
         // Case 1: IT IS CASPER
         if Self.isCasper(app) {
             autoCollapseCoordinator.cancel()
-            appDidBecomeActive()
+            casperDidBecomeActive()
             return
         }
         
@@ -911,6 +972,9 @@ final class AppRootController: ObservableObject {
         let panel = NotchPanel(contentRect: frame)
         panel.onSizeStep = { [weak self] delta in self?.adjustExpandedSize(by: delta) }
         panel.onQuit = { [weak self] in self?.quit() }
+        panel.systemAlerts.onPermissionWindowsUpdated = { [weak self] wereVisible, areVisible in
+            self?.permissionWindowsUpdated(wereVisible: wereVisible, areVisible: areVisible)
+        }
         panel.onCollapse = { [weak self] in self?.collapse() }
         panel.onTogglePin = { [weak self] in self?.togglePinned() }
         panel.onShowSettings = { [weak self] in self?.showSettings() }

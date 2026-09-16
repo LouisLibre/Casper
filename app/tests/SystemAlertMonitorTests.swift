@@ -92,6 +92,23 @@ struct SystemAlertMonitorTests {
                      "Monitoring still works before a band window is onscreen")
         expectLevels(.init(panel: nil, band: 8), [band, atTop],
                      "A band-only overlap is still a yielding state")
+        let away = CGRect(x: 2000, y: -800, width: 260, height: 200)
+        expectPermissionFrames([away], [window(2, pid: 200, level: 8, frame: away)],
+                               "Moving a permission away from Casper does not finish the interruption")
+        expectPermissionFrames([away], [window(2, pid: 200, level: notchLevel + 1, frame: away)],
+                               "A permission already above Casper still owns focus")
+        expectPermissionFrames([], [window(2, pid: 300, level: 8)],
+                               "Another application's modal must not request permission-focus restoration")
+        expectPermissionFrames([], [window(2, pid: 200, level: 8, alpha: 0)],
+                               "An invisible permission window no longer owns focus")
+        expectPermissionFrames([], [window(2, pid: 200, level: 8, frame: .zero)],
+                               "An empty helper window is ignored")
+        expectPermissionFrames([], [window(2, pid: 100, level: 8)],
+                               "Casper's confirmations use their existing focus path")
+        expectPermissionFrames([away], [window(2, pid: 200, level: 8, alpha: 0),
+                                        window(3, pid: 200, level: 8, frame: away)],
+                               "A replacement permission keeps the interruption active")
+        expectPermissionFrames([], [], "No permission windows means the interruption ended")
         // No fixtures include a window title or sharing state: neither is
         // available without Screen Recording approval, nor needed here.
         print("Passed \(checks) system-alert window-ordering checks")
@@ -104,6 +121,13 @@ struct SystemAlertMonitorTests {
          kCGWindowLayer as String: NSNumber(value: level),
          kCGWindowAlpha as String: NSNumber(value: alpha),
          kCGWindowBounds as String: frame.dictionaryRepresentation]
+    }
+
+    private static func expectPermissionFrames(_ expected: [CGRect], _ windows: [[String: Any]],
+                                               _ message: String) {
+        let actual = SystemAlertMonitor.permissionWindowFrames(in: windows, ownPID: 100) { $0 == 200 }
+        precondition(actual == expected, message)
+        checks += 1
     }
 
     private static func expect(_ expected: Int?, _ windows: [[String: Any]], _ message: String,
