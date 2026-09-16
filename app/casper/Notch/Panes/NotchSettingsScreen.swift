@@ -3,7 +3,7 @@
 //
 //  The settings pane. Takes the terminal's place inside the expanded shape
 //  while the dock's settings tab is selected. SwiftUI content inside a pane
-//  view, so it expands and collapses with the same mask as a terminal.
+//  view, so it expands and collapses like a terminal.
 //
 
 import AppKit
@@ -34,13 +34,9 @@ final class NotchSettingsScreen: NotchPane {
         view.hide()
     }
 
-    func reveal(from collapsedShapeRect: CGRect, to expandedShapeRect: CGRect) {
-        view.reveal(from: collapsedShapeRect, to: expandedShapeRect)
-    }
+    func reveal() {}
 
-    func conceal(from expandedShapeRect: CGRect, to collapsedShapeRect: CGRect) {
-        view.conceal(from: expandedShapeRect, to: collapsedShapeRect)
-    }
+    func conceal() {}
 }
 
 struct NotchSettingsPane: View {

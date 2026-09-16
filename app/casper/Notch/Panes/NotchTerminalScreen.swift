@@ -10,7 +10,7 @@
 //
 //  The libghostty surface view sits inside the pane view rather than being
 //  the pane view: libghostty installs its own render layer on the view it is
-//  given, which would discard the corner radius and mask, and the surface is
+//  given, which would discard the corner radius, and the surface is
 //  replaced with a fresh one whenever the shell exits.
 //
 
@@ -128,17 +128,15 @@ final class NotchTerminalScreen: NotchPane, Identifiable {
         surfaceView?.setVisible(false)
     }
 
-    func reveal(from collapsedShapeRect: CGRect, to expandedShapeRect: CGRect) {
+    func reveal() {
         revealed = true
         surfaceView?.setVisible(true)
-        view.reveal(from: collapsedShapeRect, to: expandedShapeRect)
     }
 
-    func conceal(from expandedShapeRect: CGRect, to collapsedShapeRect: CGRect) {
+    func conceal() {
         revealed = false
-        view.conceal(from: expandedShapeRect, to: collapsedShapeRect) { [weak self] in
-            // Let the renderer idle now that nothing is on screen.
-            self?.surfaceView?.setVisible(false)
-        }
+        // Let the renderer idle: what it last drew stays on its layer for
+        // the collapse, and nothing shows once that ends.
+        surfaceView?.setVisible(false)
     }
 }

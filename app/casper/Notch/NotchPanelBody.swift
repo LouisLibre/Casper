@@ -56,28 +56,37 @@ struct NotchPanelBody: View {
         ZStack(alignment: .top) {
             if region == .body {
                 NotchBackdrop()
-                    .notchSized(CGSize(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height),
-                                expanding: controller.isExpanded)
-                    .mask { shape.notchSized(size, expanding: controller.isExpanded) }
-                    .overlay { shape.fill(Self.backdropTint).notchSized(size, expanding: controller.isExpanded) }
+                    .notchSized(CGSize(width: size.width + NotchShape.maxTopCornerRadius * 2, height: size.height))
+                    .mask { shape.notchSized(size) }
+                    .overlay { shape.fill(Self.backdropTint).notchSized(size) }
                     .overlay {
                         shape.fill(opaqueTint)
-                            .notchSized(size, expanding: controller.isExpanded)
+                            .notchSized(size)
                             .opacity(controller.isTerminalTransparent ? 0 : 1)
                     }
                     .allowsHitTesting(false)
 
+                // Both gradients are drawn once, at the expanded size, and
+                // clipped by the animating shape. Filling the shape with them
+                // directly re-rasterizes the gradients at every animated
+                // size, which held the panel's SwiftUI frames to 25-40 per
+                // second on expand (measured) while the terminal's Core
+                // Animation mask ran at the display's full rate and overtook
+                // the shape. Clipping also keeps the band `solid` points tall
+                // throughout, which fractional stops only approximated.
                 if let vignette = Self.vignetteGradient(Self.vignette) {
-                    shape
+                    Rectangle()
                         .fill(vignette)
-                        .notchSized(size, expanding: controller.isExpanded)
+                        .notchSized(controller.expandedSize)
+                        .mask(alignment: .top) { shape.notchSized(size) }
                         .opacity(controller.isTerminalTransparent ? 1 : 0)
                         .allowsHitTesting(false)
                 }
 
-                shape
-                    .fill(Self.topGradient(solid: controller.collapsedSize.height, height: size.height))
-                    .notchSized(size, expanding: controller.isExpanded)
+                Rectangle()
+                    .fill(Self.topGradient(solid: controller.collapsedSize.height, height: controller.expandedSize.height))
+                    .notchSized(controller.expandedSize)
+                    .mask(alignment: .top) { shape.notchSized(size) }
                     .opacity(controller.isTerminalTransparent ? 1 : 0)
                     .allowsHitTesting(false)
 
@@ -86,7 +95,7 @@ struct NotchPanelBody: View {
                 // across the theme's background. Cover the hover swell too.
                 shape
                     .fill(.black)
-                    .notchSized(size, expanding: controller.isExpanded)
+                    .notchSized(size)
                     .mask(alignment: .top) {
                         Rectangle().frame(width: size.width + NotchShape.maxTopCornerRadius * 2,
                                           height: controller.isExpanded ? controller.collapsedSize.height : size.height)
@@ -100,15 +109,34 @@ struct NotchPanelBody: View {
                 // Keep this fill hit-testable: disabling it makes the band's
                 // black pixels click-through at the window level, before
                 // AppKit can route the click to our band and button targets.
-                shape.fill(.black).notchSized(size, expanding: controller.isExpanded)
+                shape.fill(.black).notchSized(size)
             }
 
             shape
                 .fill(.clear)
-                .notchSized(size, expanding: controller.isExpanded)
+                .notchSized(size)
                 // Restrict hit-testing to the visible shape so the transparent
                 // rest of the panel doesn't swallow clicks.
                 .contentShape(shape)
+
+            // The panes, inside the shape: `paneInset` in from its sides and
+            // bottom, under the band. Clipped by the shape itself, inset a
+            // few points so the clip's edge stays behind the shape's
+            // anti-aliased edge (measured: the terminal edge then sits 2 to
+            // 8 points inside the black on every frame of either
+            // animation). Collapsed, the clip is the pill, entirely above
+            // the pane, so nothing of it shows; the pill's hover swell is
+            // left out so hovering cannot uncover a sliver of terminal.
+            if region == .body {
+                let inset = AppRootController.paneInset
+                let clipSize = controller.isExpanded ? controller.expandedSize : controller.collapsedSize
+                NotchPaneHostView()
+                    .frame(width: controller.expandedSize.width - inset * 2,
+                           height: controller.expandedSize.height - controller.collapsedSize.height - inset)
+                    .padding(.top, controller.collapsedSize.height)
+                    .mask(alignment: .top) { shape.inset(by: 3).notchSized(clipSize) }
+                    .allowsHitTesting(controller.isExpanded)
+            }
 
             // Hairline along the ears, sides and bottom. The top edge is skipped:
             // it sits flush with the screen edge, and a line there would show
@@ -116,7 +144,7 @@ struct NotchPanelBody: View {
             // the same radii and frame as the fill so both ride the same spring.
             NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius, includesTopEdge: false)
                 .strokeBorder(Self.borderColor, lineWidth: Self.borderWidth)
-                .notchSized(size, expanding: controller.isExpanded)
+                .notchSized(size)
                 .opacity(controller.isExpanded ? 1 : 0)
                 .allowsHitTesting(false)
 
@@ -146,10 +174,9 @@ struct NotchPanelBody: View {
                 Color.white
             }
         }
-        // Same spring as the terminal's reveal mask. Window frame never
-        // animates. `isExpanded` already holds the new value here, so it
-        // names the direction this transition runs in. Widths and heights
-        // are animated closer to the leaves by `notchSized`; this covers
+        // Window frame never animates. `isExpanded` already holds the new
+        // value here, so it names the direction this transition runs in.
+        // Drives the frames set by `notchSized`, the clip on the panes, and
         // everything else (radii, gradients, opacity).
         .animation(NotchSpring.swiftUI(expanding: controller.isExpanded), value: controller.isExpanded)
         // The hover swell is neither an expand nor a collapse, so it runs on
@@ -214,19 +241,12 @@ struct NotchPanelBody: View {
     }
 }
 
-
 private extension View {
-    /// `frame(width:height:)` with each axis on its own spring, so the two
-    /// can collapse on different clocks. Innermost animation wins in SwiftUI,
-    /// so these override the body-wide one for the frame alone.
-    func notchSized(_ size: CGSize, expanding: Bool) -> some View {
-        self
-            .animation(NotchSpring.swiftUI(axis: .vertical, expanding: expanding)) {
-                $0.frame(height: size.height)
-            }
-            .animation(NotchSpring.swiftUI(axis: .horizontal, expanding: expanding)) {
-                $0.frame(width: size.width)
-            }
+    /// The shape's frame. Animated by the body-wide `animation(_:value:)`
+    /// on expand and collapse, both axes on the one spring (see
+    /// `NotchSpring.swiftUI(expanding:)`).
+    func notchSized(_ size: CGSize) -> some View {
+        frame(width: size.width, height: size.height)
     }
 }
 

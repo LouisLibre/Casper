@@ -133,6 +133,8 @@ final class AppRootController: ObservableObject {
     }
 
     private var panel: NotchPanel?
+    /// Every pane's container, placed and clipped by the SwiftUI body.
+    let paneHost = NotchPaneHost()
     private var pill: NotchPanelPill?
     private var band: NotchPanelBand?
     private var bandDrawing: NSHostingView<AnyView>?
@@ -263,15 +265,15 @@ final class AppRootController: ObservableObject {
         activate(terminals[index])
     }
 
-    /// Swaps the pane on screen while expanded. While collapsed every pane
-    /// is hidden anyway and the next expand reveals the active one.
+    /// Swaps the pane on screen. While collapsed the body masks it out,
+    /// ready for the next reveal (see `NotchPane.show`).
     private func switchPane(from previous: NotchPane?) {
-        guard isExpanded, let pane = activePane else { return }
+        guard let pane = activePane else { return }
         if previous !== pane {
             previous?.hide()
             pane.show()
         }
-        focusActivePane()
+        if isExpanded { focusActivePane() }
     }
 
     /// Dock clicks land in the SwiftUI body, so the pane gets the keyboard
@@ -293,11 +295,7 @@ final class AppRootController: ObservableObject {
             guard let self, let terminal else { return }
             self.closeRequested(by: terminal)
         }
-        if let panel, let container = panel.contentView {
-            terminal.view.frame = paneFrame(in: panel.frame)
-            // Above the SwiftUI body, below the resize handle and key hints.
-            container.addSubview(terminal.view, positioned: .below, relativeTo: resizeHandle)
-        }
+        paneHost.add(terminal)
         terminals.append(terminal)
         terminal.startShellIfNeeded(in: workingDirectory)
         saveTerminals()
@@ -513,6 +511,7 @@ final class AppRootController: ObservableObject {
         }
         activeTerminal = terminals[min(max(savedActiveTerminalIndex, 0), terminals.count - 1)]
         isShowingSettings = savedIsShowingSettings
+        activePane?.show()
         showsInDock = UserDefaults.standard.object(forKey: Self.showsInDockKey) as? Bool ?? true
         isTerminalTransparent = UserDefaults.standard.object(forKey: Self.terminalTransparentKey) as? Bool ?? true
 
@@ -687,9 +686,6 @@ final class AppRootController: ObservableObject {
         shouldRestoreFocusAfterSpaceChange = expanded
         panel.systemAlerts.setExpanded(expanded)
 
-        let collapsedShape = shapeRectInPaneSpace(for: collapsedSize, of: pane)
-        let expandedShape = shapeRectInPaneSpace(for: expandedSize, of: pane)
-
         pill?.setIconVisible(!expanded, animated: true)
         if let bandWindow = panel.bandWindow {
             band?.frame = bandFrame(in: bandWindow.frame)
@@ -700,10 +696,10 @@ final class AppRootController: ObservableObject {
             // An explicit click or chord takes precedence over startup.
             // A later activation callback must not hand this request back.
             isLaunching = false
-            pane.reveal(from: collapsedShape, to: expandedShape)
+            pane.reveal()
             focusExpandedPanel()
         } else {
-            pane.conceal(from: expandedShape, to: collapsedShape)
+            pane.conceal()
             panel.makeFirstResponder(nil)
             panel.resignKey()
             yieldActivation()
@@ -935,20 +931,6 @@ final class AppRootController: ObservableObject {
         NSApp.setActivationPolicy(policy)
     }
 
-    /// Frame of the black shape at a given size, converted into the pane
-    /// view's coordinate space for its reveal mask. Inset a hair so the mask
-    /// edge stays behind the shape's anti-aliased edge even if the two
-    /// animation clocks drift within a frame.
-    private func shapeRectInPaneSpace(for size: CGSize, of pane: NotchPane) -> CGRect {
-        guard let container = pane.view.superview else { return .zero }
-        let panelSize = container.bounds.size
-        let shape = NSRect(x: (panelSize.width - size.width) / 2,
-                           y: panelSize.height - size.height,
-                           width: size.width,
-                           height: size.height).insetBy(dx: 2, dy: 2)
-        return pane.view.convert(shape, from: container)
-    }
-
     // MARK: - Panel lifecycle
 
     private func rebuildPanel() {
@@ -1047,13 +1029,12 @@ final class AppRootController: ObservableObject {
 
         // In the panel from the start, hidden until its dock tab is selected.
         let settings = NotchSettingsScreen(controller: self)
-        settings.view.frame = paneFrame(in: frame)
-        container.addSubview(settings.view)
+        paneHost.add(settings)
         settingsScreen = settings
 
         // Drag target for resizing by hand, along the bottom of the
-        // expanded shape in the margin outside the pane. Above the panes
-        // (the terminals come in below this handle), though its zones never
+        // expanded shape in the margin outside the pane. Above the panes,
+        // which live in the body's hosting view, though its zones never
         // reach them. Hidden while collapsed.
         let handle = NotchResizeHandle(frame: resizeHandleFrame(in: frame))
         handle.isHidden = true
@@ -1114,10 +1095,6 @@ final class AppRootController: ObservableObject {
         bandDrawing?.frame = bandDrawingFrame(in: frame)
         pill?.frame = pillFrame(in: bandFrame)
         band?.frame = self.bandFrame(in: bandFrame)
-        for terminal in terminals {
-            terminal.view.frame = paneFrame(in: frame)
-        }
-        settingsScreen?.view.frame = paneFrame(in: frame)
         cornerControls?.bandHeight = collapsedSize.height
         cornerControls?.frame = cornerControlsFrame(in: bandFrame)
         cornerHints?.frame = cornerControlsFrame(in: frame)
@@ -1158,23 +1135,9 @@ final class AppRootController: ObservableObject {
 
     /// Margin between the expanded shape's sides and bottom and the pane,
     /// clear of the shape's rounded corners. The resize handle lives in it
-    /// (see NotchResizeHandle).
+    /// (see NotchResizeHandle). The pane frame itself is laid out by the
+    /// body (see NotchPanelBody).
     static let paneInset: CGFloat = 7
-
-    /// Every pane (terminals and settings) shares this frame inside the shape.
-    private func paneFrame(in panelFrame: NSRect) -> NSRect {
-        /// inset to match the expanded shape's rounded corners.
-        let topInset = collapsedSize.height
-        /// The expanded shape is centered in the (wider) panel; keep the pane inside it.
-        let sideMargin = (panelFrame.width - expandedSize.width) / 2
-        /// The shape sits at the top of the panel; the band below it belongs to the dock.
-        let shapeBottom = panelFrame.height - expandedSize.height
-        let inset = Self.paneInset
-        return NSRect(x: sideMargin + inset,
-                      y: shapeBottom + inset,
-                      width: expandedSize.width - inset * 2,
-                      height: expandedSize.height - topInset - inset)
-    }
 
     /// Along the bottom of the expanded shape, as wide as the shape and as
     /// tall as the corner zones reach up its sides.
