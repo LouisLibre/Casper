@@ -10,8 +10,6 @@ Click the purple ghost or press **Control + left Option** (⌃⌥) to reach your
 
 <!-- Product demo placeholder: show the notch opening over an existing workspace, switching terminal tabs, and collapsing while a process keeps running. Add the finished media here. -->
 
-[Build and run](#try-casper) · [Shortcuts](#shortcuts) · [Customization](#make-it-yours)
-
 ## One Terminal. Zero Context-switching.
 
 - **Get to work from any app.** Bring the terminal into view with a click or ⌃⌥, then start typing.
@@ -20,7 +18,7 @@ Click the purple ghost or press **Control + left Option** (⌃⌥) to reach your
 - **Tuck it away mid-task.** Collapse the panel while a command runs. Your shells, processes, and scrollback stay alive while Casper stays open.
 - **Keep output in sight.** Pin the panel while you work in another app. Drag the bottom edge or a bottom corner to resize it.
 
-## Try Casper
+## Build from source
 
 There are no [published releases](https://github.com/LouisLibre/Casper/releases) yet. Build from source with Xcode.
 
