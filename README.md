@@ -2,56 +2,59 @@
 
 # Casper
 
-**Your notch has a terminal now.**
-No more need to search across all windows & spaces for your agents 
+**Your notch has a terminal now.** Casper is a terminal that opens from your notch, built with [libghostty](https://github.com/Lakr233/libghostty-spm).
 
-A native macOS terminal that opens from your notch, built with [libghostty](https://github.com/Lakr233/libghostty-spm).
 
-Click the purple ghost or press **Control + left Option** (⌃⌥) to reach your shell without rearranging your workspace. Same place every time.
+Stop hunting for your agents across all windows & spaces.
+
+Click the notch icon or press **Control + Left Option** (⌃⌥) to reach your shell without rearranging your workspace. 
+
+Same place, every time.
 
 <!-- Product demo placeholder: show the notch opening over an existing workspace, switching terminal tabs, and collapsing while a process keeps running. Add the finished media here. -->
 
-## One Terminal. Zero Context-switching.
+## Notch Terminal
 
-- **Get to work from any app.** Bring the terminal into view with a click or ⌃⌥, then start typing.
-- **Return to work on any app.** Click or CMD+TAB into your other apps and it tucks back in.
-- **Give each job a tab.** Keep an agent, a dev server, and a shell in separate tabs. Switch by number or drag tabs into the order you want.
-- **Tuck it away mid-task.** Collapse the panel while a command runs. Your shells, processes, and scrollback stay alive while Casper stays open.
-- **Keep output in sight.** Pin the panel while you work in another app. Drag the bottom edge or a bottom corner to resize it.
+- **Open Casper from anywhere.** Bring the terminal into focus with a notch click or ⌃⌥
+- **Return to any other app.** Click or ⌘TAB into your other apps and it tucks back in.
+- **Give each job a tab.** Keep an agent, a dev server, and a shell in separate tabs.
+- **Tuck it away mid-task.** Collapse the panel while a command runs. Your shells, processes, and scrollback stay alive.
+- **Keep output in sight.** Pin the panel to disable collapsing while you work in another app. 
 
 ## Build from source
-
-There are no [published releases](https://github.com/LouisLibre/Casper/releases) yet. Build from source with Xcode.
 
 **Requirements:** macOS 15.6 or later and Xcode 26.
 
 1. Clone this repository and open `app/casper.xcodeproj` in Xcode.
-2. Let Xcode resolve the Swift packages, including `libghostty-spm` **1.5.1**.
+2. Wait until Xcode resolves the Swift packages, including `libghostty-spm` **1.5.1**.
 3. On the Xcode sidebar click the casper project > Select "casper" in targets › Go to "Signing & Capabilities" tab and either set Team to your own or set Signing Certificate to "Sign to Run Locally"
-4. Choose **Product → Run** (⌘R). Casper starts collapsed; click the purple ghost or press ⌃⌥ **Control + Left Option** together to open it.
+4. Click **Product → Run** (⌘R). Casper starts collapsed; click the purple ghost or press ⌃⌥ **Control + Left Option** together to open it.
 
 To keep the app, move `casper.app` out of `build/` and into /Applications.
 
 ## Usage
 
-The panel collapses on ⌃⌥, a click outside it, or ⌘Tab to another app. Hovering never opens it, and moving the pointer away never collapses it. Collapsing doesn't resize the terminal, so TUIs work perfectly.
+The terminal expands with ⌃⌥, or a click in the notch icon, or ⌘Tab into Casper.
 
-Pin (⌘P) turns off collapsing for clicking or tabbing away, so the panel stays open over other apps while you work in them.
+The terminal collapses with ⌃⌥, or a click outside it, or ⌘Tab to other apps. 
 
-Tabs sit in a row under the panel. ⌘T adds one, ⌘1–⌘0 jump to the first ten, and you can drag them into a new order. Put an agent in one, a dev server in another and a shell in a third; all of them keep running while the panel is collapsed. Right-click a tab to reveal its directory in Finder.
+Pin (⌘P) turns off collapsing for clicking outside it or ⌘Tab to other apps, so the panel stays open over other apps while you work in them.
 
-Drop a file from Finder on the terminal and it arrives as a shell-escaped path. It supports displaying images on Agents.
+Tabs sit in a row under the panel. ⌘T adds one, ⌘1–⌘9 jumps between the 1st to 9th tab, and you can drag them into a new order. Put an agent in one, a dev server in another and a shell in a third; all of them keep running while the panel is collapsed.
+
+Drop a file from Finder on the terminal and it arrives as a shell-escaped path.
 
 ## All Shortcuts
 
 | Shortcut | Action |
 | --- | --- |
-| ⌃ + left ⌥ | Expand or collapse the panel |
+| ⌃ + left ⌥ | Toggle to expand or collapse the panel |
 | ⌘T | Open a terminal tab |
 | ⌘1–⌘9 / ⌘0 | Select tabs 1–9 / the tenth tab |
-| ⌘[ / ⌘] | Previous / next tab |
+| ⌘[ | Previous tab |
+| ⌘] | Next tab |
 | ⌘W | Close the active tab; the last tab asks to quit |
-| ⌘M | Collapse the panel |
+| ⌘M | Default macOS minimize shortcut, it collapses the panel |
 | ⌘P | Pin or unpin the panel |
 | ⌘⇧+ / ⌘⇧− | Grow / shrink the panel |
 | ⌘+ / ⌘− | Increase / decrease font size |
@@ -59,16 +62,16 @@ Drop a file from Finder on the terminal and it arrives as a shell-escaped path. 
 | ⌘, | Open ghostty configuration file |
 | ⌘⇧, | Reload ghostty configuration file |
 | ⌘Q | Quit after confirmation |
-| Hold ⌘ for about a second | Show each control's shortcut as a badge, while the panel has focus | fixed |
+| Hold ⌘ for a second | Display all shortcut hints in the app |
 
 ## Casper Configuration
 
-ettings (⌘S) has three toggles:
+Settings (⌘S) has three toggles:
 
 | Setting | Effect |
 | --- | --- |
 | Open at login | Registers Casper to run at startup. macOS may ask for approval in System Settings › Login Items. |
-| Show in Dock | On by default. Gives Casper a Dock icon and a ⌘Tab entry. Turning it off removes dock icon and ⌘Tab entry |
+| Show in Dock | On by default. Gives Casper a Dock icon and a ⌘Tab entry. Turning it off removes dock icon and the ⌘Tab entry |
 | Transparent background | ON gives a frosted backdrop. OFF uses the ghostty theme's solid background color. |
 
 For fonts, colors, themes, and terminal key bindings, press **⌘,** or choose **Open in Editor** in Settings. This creates `~/.config/casper/config.ghostty` from the bundled defaults on first use. Edit it using [Ghostty's configuration syntax](https://ghostty.org/docs/config/reference). Choose a [bundled theme](app/Vendor/ghostty-themes/themes) by name; the default is **Dark Pastel**.
@@ -83,11 +86,11 @@ Yes. Casper draws a small strip at the top center. It uses one display at a time
 
 **What happens when I collapse it or quit?**
 
-Collapsing keeps the terminals running. Quitting ends the terminal sessions. On restart, Casper opens fresh shells in the saved tab order and directories, as last reported by shell integration. Running programs and scrollback are not restored after quitting.
+Collapsing keeps the terminals running. Quitting ends the terminal sessions. On restart, Casper opens fresh shells in the saved tab order and directories. Previously running programs and scrollback are not restored after quitting.
 
 **Why doesn't ⌃⌥ open the panel?**
 
-Maybe its overlapping with some other app shortcut. You can still click the purple ghost to open Casper.
+Maybe its overlapping with some other app shortcut. You can still click the notch purple ghost icon to open Casper.
 
 ## Contributing
 
