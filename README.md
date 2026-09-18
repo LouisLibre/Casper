@@ -3,6 +3,7 @@
 # Casper
 
 **Your notch has a terminal now.**
+No more need to search across all windows & spaces for your agents 
 
 A native macOS terminal that opens from your notch, built with [libghostty](https://github.com/Lakr233/libghostty-spm).
 
