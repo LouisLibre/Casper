@@ -272,7 +272,7 @@ struct NotchBackdrop: NSViewRepresentable {
 /// Notch cutout flush against the top of the screen: rounded bottom corners, and top
 /// corners that flare outward into the menu bar ("ears"). The ears are drawn *outside*
 /// `rect` so the body of the shape stays aligned with the physical notch.
-struct NotchShape: InsettableShape {
+nonisolated struct NotchShape: InsettableShape {
     var topCornerRadius: CGFloat = 10
     var bottomCornerRadius: CGFloat = 12
     /// `false` leaves the path open between the two ear tips, for stroking an

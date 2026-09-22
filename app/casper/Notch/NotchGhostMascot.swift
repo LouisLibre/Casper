@@ -8,7 +8,7 @@
 
 import SwiftUI
 
-struct NotchGhostMascot: Shape {
+nonisolated struct NotchGhostMascot: Shape {
     /// Where the eyes look: -1 is left, as in the icon; 1 is right.
     var gaze: CGFloat
 
