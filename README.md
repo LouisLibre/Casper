@@ -5,13 +5,16 @@
 **Your notch has a terminal now.** Casper is a terminal that opens from your notch, built with [libghostty](https://github.com/Lakr233/libghostty-spm).
 
 
-Stop hunting for your agents across all windows & spaces.
 
-Click the notch icon or press **Control + Left Option** (⌃⌥) to reach your shell without rearranging your workspace. 
+Click the notch icon or press **Control + Left Option** (⌃⌥) to open your terminal. Stop searching across all windows & spaces. 
 
 Same place, every time.
 
-<!-- Product demo placeholder: show the notch opening over an existing workspace, switching terminal tabs, and collapsing while a process keeps running. Add the finished media here. -->
+
+
+https://github.com/user-attachments/assets/50c2aa14-1edf-40d7-bb9b-309dc53523cb
+
+
 
 ## Notch Terminal
 
