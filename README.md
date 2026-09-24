@@ -1,6 +1,6 @@
-![Casper's purple ghost app icon](app/casper/Assets.xcassets/AppIcon.appiconset/icon_128x128.png)
-
 # Casper
+
+![Casper app icon](app/casper/Assets.xcassets/AppIcon.appiconset/icon_128x128.png)
 
 **Your notch has a terminal now.** Casper is a terminal that opens from your notch, built with [libghostty](https://github.com/Lakr233/libghostty-spm).
 
@@ -10,19 +10,22 @@ Click the notch icon or press **Control + Left Option** (⌃⌥) to open your te
 
 Same place, every time.
 
-
-
-https://github.com/user-attachments/assets/50c2aa14-1edf-40d7-bb9b-309dc53523cb
-
-
-
-## Notch Terminal
+## Quick Overview
 
 - **Open Casper from anywhere.** Bring the terminal into focus with a notch click or ⌃⌥
 - **Return to any other app.** Click or ⌘TAB into your other apps and it tucks back in.
 - **Give each job a tab.** Keep an agent, a dev server, and a shell in separate tabs.
 - **Tuck it away mid-task.** Collapse the panel while a command runs. Your shells, processes, and scrollback stay alive.
 - **Keep output in sight.** Pin the panel to disable collapsing while you work in another app. 
+
+## Quick Demo
+
+
+
+https://github.com/user-attachments/assets/50c2aa14-1edf-40d7-bb9b-309dc53523cb
+
+
+
 
 ## Build from source
 
