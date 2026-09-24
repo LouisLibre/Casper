@@ -10,7 +10,7 @@ Click the notch icon or press **Control + Left Option** (⌃⌥) to open your te
 
 Same place, every time.
 
-## Quick Overview
+## Casper Usage
 
 - **Open Casper from anywhere.** Bring the terminal into focus with a notch click or ⌃⌥
 - **Return to any other app.** Click or ⌘TAB into your other apps and it tucks back in.
@@ -18,7 +18,7 @@ Same place, every time.
 - **Tuck it away mid-task.** Collapse the panel while a command runs. Your shells, processes, and scrollback stay alive.
 - **Keep output in sight.** Pin the panel to disable collapsing while you work in another app. 
 
-## Quick Demo
+## Casper Demo
 
 
 
@@ -38,19 +38,17 @@ https://github.com/user-attachments/assets/50c2aa14-1edf-40d7-bb9b-309dc53523cb
 
 To keep the app, move `casper.app` out of `build/` and into /Applications.
 
-## Usage
+## Common Shortcuts
 
 The terminal expands with ⌃⌥, or a click in the notch icon, or ⌘Tab into Casper.
 
-The terminal collapses with ⌃⌥, or a click outside it, or ⌘Tab to other apps. 
+The terminal collapses with ⌃⌥, or a click outside it, or ⌘Tab into other apps. 
 
-Pin (⌘P) turns off collapsing for clicking outside it or ⌘Tab to other apps, so the panel stays open over other apps while you work in them.
+Pin (⌘P) turns off collapsing for clicking outside it, or for ⌘Tab into other apps, so the panel stays open over the other apps.
 
 Tabs sit in a row under the panel. ⌘T adds one, ⌘1–⌘9 jumps between the 1st to 9th tab, and you can drag them into a new order. Put an agent in one, a dev server in another and a shell in a third; all of them keep running while the panel is collapsed.
 
-Drop a file from Finder on the terminal and it arrives as a shell-escaped path.
-
-## All Shortcuts
+### All Shortcuts Table
 
 | Shortcut | Action |
 | --- | --- |
@@ -92,7 +90,7 @@ Yes. Casper draws a small strip at the top center. It uses one display at a time
 
 **What happens when I collapse it or quit?**
 
-Collapsing keeps the terminals running. Quitting ends the terminal sessions. On restart, Casper opens fresh shells in the saved tab order and directories. Previously running programs and scrollback are not restored after quitting.
+Collapsing keeps the terminals running. Quitting ends the terminal sessions. On quitting and then restoring the app, Casper will remember only the number of tabs, their order and their directories. Previously running programs and scrollback are not restored after quitting.
 
 **Why doesn't ⌃⌥ open the panel?**
 
